@@ -1,0 +1,21 @@
+{
+  "overview": "A SaaS-scalable mini-ERP for restaurant financial and operational management. Built with a strict modular architecture separating generic business logic (finance, HR) from restaurant-specific features (menus, recipes). Sprint 1 establishes the foundational folder structure, TypeScript interfaces, and navigation layout.",
+  "features": [
+    "Modular architecture with core/modules/utils separation",
+    "TypeScript interfaces for Expenses, Salaries, Loans, Recipes, Ingredients",
+    "Responsive Layout with collapsible Sidebar navigation",
+    "Four navigation sections: Paramètres, Business Plan, Simulateur Carte, Quotidien",
+    "Domain-split hooks structure for future TanStack Query integration",
+    "Pure math utility structure enforcing no calculations in components"
+  ],
+  "category": "productivity",
+  "tags": [
+    "erp",
+    "restaurant",
+    "finance",
+    "saas",
+    "modular",
+    "typescript"
+  ],
+  "last_updated": "2026-04-19T18:15:47.252Z"
+}
