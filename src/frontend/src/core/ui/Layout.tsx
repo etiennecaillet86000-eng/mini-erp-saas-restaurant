@@ -12,7 +12,8 @@ interface LayoutProps {
 
 const PAGE_TITLES: Record<Page, string> = {
   quotidien: "Quotidien",
-  "business-plan": "Business Plan",
+  "business-plan": "Business Plan Stratégique",
+  "business-plan-reel": "Business Plan Réel (Bottom-Up)",
   "simulateur-carte": "Laboratoire Recettes",
   parametres: "Paramètres",
   salaries: "Salariés",

@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/table";
 import { useAppStore } from "@/core/store/useAppStore";
 import type {
+  CategorieRecette,
   IngredientFB,
   RecetteFB,
   RecetteIngredient,
@@ -32,16 +33,28 @@ import type {
 import {
   calculerCoutIngredient,
   calculerFoodCostRecette,
+  calculerMargeRecette,
 } from "@/modules/restaurant/utils/calculations";
 import { BookOpen, ChefHat, Pencil, Plus, Save, Trash2, X } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const CATEGORIES: CategorieRecette[] = [
+  "Boissons",
+  "Snacking",
+  "Plats chauds",
+  "Desserts",
+  "Accompagnements",
+  "Formules",
+];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface FormState {
   id: string | null; // null = new recipe
   nom: string;
-  categorie: string;
+  categorie: CategorieRecette | "";
   prixVenteHT: string;
   tva: string;
   lignes: RecetteIngredient[];
@@ -320,7 +333,7 @@ export default function RecettesPage() {
     const partialRecette: RecetteFB = {
       id: form.id ?? "",
       nom: form.nom,
-      categorie: form.categorie,
+      categorie: (form.categorie || "Plats chauds") as CategorieRecette,
       prixVenteHT: Number.parseFloat(form.prixVenteHT) || 0,
       tva: Number.parseFloat(form.tva) || 0,
       ingredients: form.lignes,
@@ -332,25 +345,32 @@ export default function RecettesPage() {
     const prixVente = partialRecette.prixVenteHT;
     const margePct =
       prixVente > 0 ? ((prixVente - coutMatiereTotalHT) / prixVente) * 100 : 0;
-    return { coutMatiereTotalHT, foodCostPct, margePct };
+    const margeEur = calculerMargeRecette(prixVente, coutMatiereTotalHT);
+    return { coutMatiereTotalHT, foodCostPct, margePct, margeEur };
   }, [form, ingredients]);
 
   // ── Save ────────────────────────────────────────────────────────────────
 
   const handleSave = useCallback(() => {
-    const recetteData: Omit<RecetteFB, "id"> = {
-      nom: form.nom.trim(),
-      categorie: form.categorie.trim(),
-      prixVenteHT: Number.parseFloat(form.prixVenteHT) || 0,
-      tva: Number.parseFloat(form.tva) || 0,
-      ingredients: form.lignes,
-    };
-    if (!recetteData.nom) return;
+    if (!form.nom.trim()) return;
 
     if (form.id) {
-      updateRecette(form.id, recetteData);
+      updateRecette(form.id, {
+        nom: form.nom.trim(),
+        categorie: (form.categorie || "Plats chauds") as CategorieRecette,
+        prixVenteHT: Number.parseFloat(form.prixVenteHT) || 0,
+        tva: Number.parseFloat(form.tva) || 0,
+        ingredients: form.lignes,
+      });
     } else {
-      addRecette({ id: generateId(), ...recetteData });
+      addRecette({
+        id: generateId(),
+        nom: form.nom.trim(),
+        categorie: (form.categorie || "Plats chauds") as CategorieRecette,
+        prixVenteHT: Number.parseFloat(form.prixVenteHT) || 0,
+        tva: Number.parseFloat(form.tva) || 0,
+        ingredients: form.lignes,
+      });
     }
     resetForm();
   }, [form, addRecette, updateRecette, resetForm]);
@@ -432,13 +452,26 @@ export default function RecettesPage() {
               <Label htmlFor="rec-categorie" className="text-sm font-medium">
                 Catégorie
               </Label>
-              <Input
-                id="rec-categorie"
-                placeholder="ex : Plat, Entrée, Dessert"
+              <Select
                 value={form.categorie}
-                onChange={(e) => updateForm("categorie", e.target.value)}
-                data-ocid="recettes.categorie.input"
-              />
+                onValueChange={(v) =>
+                  updateForm("categorie", v as CategorieRecette)
+                }
+              >
+                <SelectTrigger
+                  id="rec-categorie"
+                  data-ocid="recettes.categorie.select"
+                >
+                  <SelectValue placeholder="Choisir une catégorie…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {CATEGORIES.map((cat) => (
+                    <SelectItem key={cat} value={cat}>
+                      {cat}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="rec-prix" className="text-sm font-medium">
@@ -686,7 +719,7 @@ export default function RecettesPage() {
               data-ocid="recettes.kpi-cout.card"
             />
             <KpiBlock
-              label="Food Cost"
+              label="Food Cost calculé"
               value={formatPct(liveAnalysis.foodCostPct)}
               valueClass={getFoodCostColor(liveAnalysis.foodCostPct)}
               sub={
@@ -699,16 +732,10 @@ export default function RecettesPage() {
               data-ocid="recettes.kpi-foodcost.card"
             />
             <KpiBlock
-              label="Marge Brute"
-              value={formatPct(liveAnalysis.margePct)}
+              label="Marge Brute calculée"
+              value={formatEur(liveAnalysis.margeEur)}
               valueClass={getMargeColor(liveAnalysis.margePct)}
-              sub={
-                liveAnalysis.margePct < 60
-                  ? "⚠ Marge insuffisante (< 60 %)"
-                  : liveAnalysis.margePct >= 70
-                    ? "Marge saine (≥ 70 %)"
-                    : "Marge correcte"
-              }
+              sub={`Soit ${formatPct(liveAnalysis.margePct)} du prix de vente${liveAnalysis.margePct < 60 ? " — ⚠ insuffisante" : liveAnalysis.margePct >= 70 ? " — marge saine" : " — correcte"}`}
               data-ocid="recettes.kpi-marge.card"
             />
           </div>

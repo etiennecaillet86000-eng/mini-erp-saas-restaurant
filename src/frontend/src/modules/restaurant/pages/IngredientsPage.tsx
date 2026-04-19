@@ -22,15 +22,49 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAppStore } from "@/core/store/useAppStore";
-import type { IngredientFB } from "@/modules/restaurant/types/models";
-import { PackageOpen, Plus, Trash2 } from "lucide-react";
-import { useCallback } from "react";
+import type {
+  FamilleIngredient,
+  IngredientFB,
+} from "@/modules/restaurant/types/models";
+import { PackageOpen, Plus, Search, Trash2 } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 type Unite = IngredientFB["unite"];
 
 const UNITES: Unite[] = ["Kg", "Litre", "Pièce"];
+
+const FAMILLES: FamilleIngredient[] = [
+  "Viandes & Volailles",
+  "Marée",
+  "B.O.F",
+  "Fruits & Légumes",
+  "Épicerie Sèche",
+  "Surgelés",
+  "Liquides",
+  "Consommables",
+];
+
+// Color mapping for famille badges — using Tailwind classes
+const FAMILLE_COLORS: Record<FamilleIngredient, string> = {
+  "Viandes & Volailles":
+    "bg-red-100 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-800",
+  Marée:
+    "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800",
+  "B.O.F":
+    "bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-400 dark:border-yellow-800",
+  "Fruits & Légumes":
+    "bg-green-100 text-green-700 border-green-200 dark:bg-green-950/40 dark:text-green-400 dark:border-green-800",
+  "Épicerie Sèche":
+    "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800",
+  Surgelés:
+    "bg-cyan-100 text-cyan-700 border-cyan-200 dark:bg-cyan-950/40 dark:text-cyan-400 dark:border-cyan-800",
+  Liquides:
+    "bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-400 dark:border-indigo-800",
+  Consommables:
+    "bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-800",
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -43,6 +77,25 @@ function formatEur(v: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(v)} €`;
+}
+
+// ─── FamilleBadge ─────────────────────────────────────────────────────────────
+
+function FamilleBadge({ famille }: { famille?: FamilleIngredient }) {
+  if (!famille) {
+    return (
+      <span className="inline-flex items-center rounded border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+        Non classé
+      </span>
+    );
+  }
+  return (
+    <span
+      className={`inline-flex items-center rounded border px-2 py-0.5 text-xs font-medium ${FAMILLE_COLORS[famille]}`}
+    >
+      {famille}
+    </span>
+  );
 }
 
 // ─── Row component ────────────────────────────────────────────────────────────
@@ -66,7 +119,7 @@ function IngredientRow({
       data-ocid={`ingredients.item.${index + 1}`}
     >
       {/* Nom */}
-      <TableCell className="pl-6 min-w-[180px]">
+      <TableCell className="pl-6 min-w-[160px]">
         <Input
           value={ingredient.nom}
           onChange={(e) => onUpdate(ingredient.id, { nom: e.target.value })}
@@ -77,8 +130,38 @@ function IngredientRow({
         />
       </TableCell>
 
+      {/* Famille */}
+      <TableCell className="min-w-[180px]">
+        <Select
+          value={ingredient.famille ?? "__none__"}
+          onValueChange={(v) =>
+            onUpdate(ingredient.id, {
+              famille: v === "__none__" ? undefined : (v as FamilleIngredient),
+            })
+          }
+        >
+          <SelectTrigger
+            className="h-8 text-sm bg-background"
+            data-ocid={`ingredients.famille.select.${index + 1}`}
+            aria-label={`Famille — ligne ${index + 1}`}
+          >
+            <SelectValue placeholder="Non classé" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__none__">
+              <span className="text-muted-foreground">Non classé</span>
+            </SelectItem>
+            {FAMILLES.map((f) => (
+              <SelectItem key={f} value={f}>
+                {f}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </TableCell>
+
       {/* Unité */}
-      <TableCell className="min-w-[110px]">
+      <TableCell className="min-w-[100px]">
         <Select
           value={ingredient.unite}
           onValueChange={(v) => onUpdate(ingredient.id, { unite: v as Unite })}
@@ -101,7 +184,7 @@ function IngredientRow({
       </TableCell>
 
       {/* Prix Achat HT */}
-      <TableCell className="min-w-[140px]">
+      <TableCell className="min-w-[130px]">
         <Input
           type="number"
           min={0}
@@ -119,7 +202,7 @@ function IngredientRow({
       </TableCell>
 
       {/* Perte Matière % */}
-      <TableCell className="min-w-[120px]">
+      <TableCell className="min-w-[110px]">
         <div className="relative">
           <Input
             type="number"
@@ -145,7 +228,7 @@ function IngredientRow({
         </div>
       </TableCell>
 
-      {/* Coût réel (display-only) */}
+      {/* Prix référence */}
       <TableCell className="text-right tabular-nums text-muted-foreground text-sm pr-2">
         {formatEur(ingredient.prixAchatHT)}
         <span className="ml-1 text-xs text-muted-foreground/60">
@@ -178,6 +261,24 @@ export default function IngredientsPage() {
   const updateIngredient = useAppStore((s) => s.updateIngredient);
   const deleteIngredient = useAppStore((s) => s.deleteIngredient);
 
+  // ── Filters ──────────────────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState("");
+  const [familleFilter, setFamilleFilter] = useState<
+    FamilleIngredient | "__all__"
+  >("__all__");
+
+  const filteredIngredients = useMemo(() => {
+    return ingredients.filter((ing) => {
+      const matchesSearch =
+        searchQuery.trim() === "" ||
+        ing.nom.toLowerCase().includes(searchQuery.trim().toLowerCase());
+      const matchesFamille =
+        familleFilter === "__all__" ||
+        (ing.famille ?? undefined) === familleFilter;
+      return matchesSearch && matchesFamille;
+    });
+  }, [ingredients, searchQuery, familleFilter]);
+
   const handleAdd = useCallback(() => {
     const newIng: IngredientFB = {
       id: generateId(),
@@ -189,13 +290,16 @@ export default function IngredientsPage() {
     addIngredient(newIng);
   }, [addIngredient]);
 
+  const showEmptyBase = ingredients.length === 0;
+  const showEmptyFilter = !showEmptyBase && filteredIngredients.length === 0;
+
   return (
     <div className="space-y-6" data-ocid="ingredients.page">
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-display font-semibold text-foreground">
-            Ingrédients F&B
+            Ingrédients F&amp;B
           </h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
             Gérez votre catalogue d'achats et leurs coûts unitaires.
@@ -221,6 +325,51 @@ export default function IngredientsPage() {
         </div>
       </div>
 
+      {/* ── Filters ─────────────────────────────────────────────────────── */}
+      {!showEmptyBase && (
+        <div
+          className="flex flex-col gap-3 sm:flex-row sm:items-center"
+          data-ocid="ingredients.filters.panel"
+        >
+          {/* Search */}
+          <div className="relative flex-1 max-w-sm">
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Rechercher par nom…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 h-9 bg-background"
+              data-ocid="ingredients.search_input"
+              aria-label="Rechercher un ingrédient"
+            />
+          </div>
+          {/* Famille filter */}
+          <Select
+            value={familleFilter}
+            onValueChange={(v) =>
+              setFamilleFilter(v as FamilleIngredient | "__all__")
+            }
+          >
+            <SelectTrigger
+              className="h-9 w-full sm:w-56 bg-background text-sm"
+              data-ocid="ingredients.famille_filter.select"
+              aria-label="Filtrer par famille"
+            >
+              <SelectValue placeholder="Toutes les familles" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">Toutes les familles</SelectItem>
+              {FAMILLES.map((f) => (
+                <SelectItem key={f} value={f}>
+                  {f}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
       {/* ── Table ───────────────────────────────────────────────────────── */}
       <Card className="border-border bg-card" data-ocid="ingredients.table">
         <CardHeader className="pb-3">
@@ -233,7 +382,7 @@ export default function IngredientsPage() {
           </p>
         </CardHeader>
         <CardContent className="p-0">
-          {ingredients.length === 0 ? (
+          {showEmptyBase ? (
             <div
               className="flex flex-col items-center justify-center py-16 text-center px-6"
               data-ocid="ingredients.empty_state"
@@ -258,6 +407,19 @@ export default function IngredientsPage() {
                 Ajouter un Ingrédient
               </Button>
             </div>
+          ) : showEmptyFilter ? (
+            <div
+              className="flex flex-col items-center justify-center py-12 text-center px-6"
+              data-ocid="ingredients.filter.empty_state"
+            >
+              <Search className="h-8 w-8 text-muted-foreground/40 mb-3" />
+              <p className="text-sm font-medium text-foreground">
+                Aucun résultat
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground max-w-xs">
+                Essayez de modifier votre recherche ou de changer de filtre.
+              </p>
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <Table>
@@ -265,6 +427,9 @@ export default function IngredientsPage() {
                   <TableRow className="border-border hover:bg-transparent">
                     <TableHead className="pl-6 font-semibold text-foreground">
                       Nom
+                    </TableHead>
+                    <TableHead className="font-semibold text-foreground">
+                      Famille
                     </TableHead>
                     <TableHead className="font-semibold text-foreground">
                       Unité
@@ -284,7 +449,7 @@ export default function IngredientsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {ingredients.map((ing, idx) => (
+                  {filteredIngredients.map((ing, idx) => (
                     <IngredientRow
                       key={ing.id}
                       ingredient={ing}
@@ -299,6 +464,19 @@ export default function IngredientsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* ── Famille legend ───────────────────────────────────────────────── */}
+      {!showEmptyBase && (
+        <div
+          className="flex flex-wrap gap-2"
+          data-ocid="ingredients.famille_legend.panel"
+          aria-label="Légende des familles"
+        >
+          {FAMILLES.map((f) => (
+            <FamilleBadge key={f} famille={f} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

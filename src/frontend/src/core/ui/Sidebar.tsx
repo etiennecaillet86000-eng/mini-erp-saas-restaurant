@@ -10,6 +10,7 @@ import {
   FlaskConical,
   PackageOpen,
   Settings,
+  TrendingDown,
   TrendingUp,
   Users,
   UtensilsCrossed,
@@ -67,8 +68,13 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       {
         id: "business-plan",
-        label: "Business Plan",
+        label: "BP Stratégique",
         icon: <TrendingUp className="h-4 w-4" />,
+      },
+      {
+        id: "business-plan-reel",
+        label: "BP Réel (Bottom-Up)",
+        icon: <TrendingDown className="h-4 w-4" />,
       },
     ],
   },

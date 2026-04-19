@@ -1,6 +1,7 @@
 import FraisFixesPage from "@/core/finance/FraisFixesPage";
 import SalariesPage from "@/core/hr/SalariesPage";
 import Layout from "@/core/ui/Layout";
+import BusinessPlanReelPage from "@/modules/restaurant/pages/BusinessPlanReelPage";
 import IngredientsPage from "@/modules/restaurant/pages/IngredientsPage";
 import RecettesPage from "@/modules/restaurant/pages/RecettesPage";
 import BusinessPlan from "@/pages/BusinessPlan";
@@ -13,6 +14,7 @@ import { useState } from "react";
 export type Page =
   | "parametres"
   | "business-plan"
+  | "business-plan-reel"
   | "simulateur-carte"
   | "quotidien"
   | "salaries"
@@ -30,6 +32,8 @@ export default function App() {
         return <Parametres />;
       case "business-plan":
         return <BusinessPlan />;
+      case "business-plan-reel":
+        return <BusinessPlanReelPage />;
       case "simulateur-carte":
         return <SimulateurCarte />;
       case "salaries":

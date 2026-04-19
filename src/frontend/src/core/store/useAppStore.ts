@@ -1,5 +1,6 @@
 import type { FraisFixe, Salarie } from "@/core/types/models";
 import type {
+  CategorieCarte,
   IngredientFB,
   RecetteFB,
 } from "@/modules/restaurant/types/models";
@@ -23,6 +24,7 @@ interface AppStore {
   hypothesesBP: HypothesesBP;
   ingredients: IngredientFB[];
   recettes: RecetteFB[];
+  categoriesCarte: CategorieCarte[];
 
   // ── Actions ────────────────────────────────────────────────────────────────
   setSalaries: (salaries: Salarie[]) => void;
@@ -38,6 +40,11 @@ interface AppStore {
   addRecette: (r: RecetteFB) => void;
   updateRecette: (id: string, updates: Partial<RecetteFB>) => void;
   deleteRecette: (id: string) => void;
+
+  // Catégories de carte (dynamiques)
+  addCategorieCarte: (cat: Omit<CategorieCarte, "id">) => void;
+  updateCategorieCarte: (id: string, updates: Partial<CategorieCarte>) => void;
+  deleteCategorieCarte: (id: string) => void;
 }
 
 // ─── Default data (mirrors Sprint 2 mock values) ─────────────────────────────
@@ -117,6 +124,15 @@ const DEFAULT_HYPOTHESES_BP: HypothesesBP = {
   joursOuvertureAn: 300,
 };
 
+const DEFAULT_CATEGORIES_CARTE: CategorieCarte[] = [
+  { id: "cat-boissons", nom: "Boissons", mixCiblePct: 20 },
+  { id: "cat-snacking", nom: "Snacking", mixCiblePct: 30 },
+  { id: "cat-plats-chauds", nom: "Plats chauds", mixCiblePct: 25 },
+  { id: "cat-desserts", nom: "Desserts", mixCiblePct: 10 },
+  { id: "cat-accompagnements", nom: "Accompagnements", mixCiblePct: 10 },
+  { id: "cat-formules", nom: "Formules", mixCiblePct: 5 },
+];
+
 // ─── Selectors (pure helpers — use outside the store) ────────────────────────
 
 /** Somme annuelle des coûts employeur (mensuel × 12) */
@@ -142,6 +158,7 @@ export const useAppStore = create<AppStore>()(
       hypothesesBP: DEFAULT_HYPOTHESES_BP,
       ingredients: [],
       recettes: [],
+      categoriesCarte: DEFAULT_CATEGORIES_CARTE,
 
       setSalaries: (salaries) => set({ salaries }),
       setFraisFixes: (fraisFixes) => set({ fraisFixes }),
@@ -174,7 +191,40 @@ export const useAppStore = create<AppStore>()(
         set((state) => ({
           recettes: state.recettes.filter((r) => r.id !== id),
         })),
+
+      addCategorieCarte: (cat) =>
+        set((state) => ({
+          categoriesCarte: [
+            ...state.categoriesCarte,
+            { ...cat, id: Date.now().toString() },
+          ],
+        })),
+      updateCategorieCarte: (id, updates) =>
+        set((state) => ({
+          categoriesCarte: state.categoriesCarte.map((c) =>
+            c.id === id ? { ...c, ...updates } : c,
+          ),
+        })),
+      deleteCategorieCarte: (id) =>
+        set((state) => ({
+          categoriesCarte: state.categoriesCarte.filter((c) => c.id !== id),
+        })),
     }),
-    { name: "mini-erp-store" },
+    {
+      name: "mini-erp-store",
+      // Merge strategy: if categoriesCarte is missing from persisted state
+      // (old localStorage without this field), fall back to the default list.
+      merge: (persistedState, currentState) => {
+        const persisted = persistedState as Partial<AppStore>;
+        return {
+          ...currentState,
+          ...persisted,
+          categoriesCarte:
+            persisted.categoriesCarte && persisted.categoriesCarte.length > 0
+              ? persisted.categoriesCarte
+              : DEFAULT_CATEGORIES_CARTE,
+        };
+      },
+    },
   ),
 );

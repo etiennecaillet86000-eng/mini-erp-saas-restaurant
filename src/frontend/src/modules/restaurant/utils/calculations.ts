@@ -96,3 +96,111 @@ export function calculerFoodCostRecette(
 
   return { coutMatiereTotalHT, foodCostPct };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Moteur Bottom-Up (Sprint 8)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Calcule le Mix Réel (%) d'une catégorie par rapport au volume total.
+ * Mix Réel = (Volume de la catégorie / Volume total) × 100
+ *
+ * @param recettes    - Liste des fiches techniques
+ * @param volumes     - Map { recetteId → volume hebdo estimé }
+ * @param categorieId - Identifiant de la catégorie à analyser
+ * @returns Pourcentage entre 0 et 100 (0 si volume total = 0)
+ */
+export function calculerMixReelCategorie(
+  recettes: RecetteFB[],
+  volumes: Record<string, number>,
+  categorieId: string,
+): number {
+  const volumeTotal = Object.values(volumes).reduce(
+    (sum, v) => sum + (v ?? 0),
+    0,
+  );
+  if (volumeTotal === 0) return 0;
+
+  const volumeCategorie = recettes
+    .filter((r) => r.categorieId === categorieId)
+    .reduce((sum, r) => sum + (volumes[r.id] ?? 0), 0);
+
+  return (volumeCategorie / volumeTotal) * 100;
+}
+
+/**
+ * Calcule le Chiffre d'Affaires réel annuel (approche Bottom-Up).
+ * CA Annuel = (Σ volume[r] × prixVenteHT[r]) × semainesOuverture
+ *
+ * @param recettes          - Liste des fiches techniques
+ * @param volumes           - Map { recetteId → volume hebdo estimé }
+ * @param semainesOuverture - Nombre de semaines d'ouverture par an
+ * @returns CA annuel HT (€)
+ */
+export function calculerCAReelAnnuel(
+  recettes: RecetteFB[],
+  volumes: Record<string, number>,
+  semainesOuverture: number,
+): number {
+  const weeklyCA = recettes.reduce(
+    (sum, r) => sum + (volumes[r.id] ?? 0) * (r.prixVenteHT ?? 0),
+    0,
+  );
+  return weeklyCA * (semainesOuverture ?? 0);
+}
+
+/**
+ * Calcule le Coût Matière réel annuel (approche Bottom-Up).
+ * Pour chaque recette : coût semaine = volume × coût matière unitaire
+ * Coût Annuel = Σ coutSemaine × semainesOuverture
+ *
+ * @param recettes          - Liste des fiches techniques
+ * @param volumes           - Map { recetteId → volume hebdo estimé }
+ * @param ingredients       - Catalogue global des ingrédients
+ * @param semainesOuverture - Nombre de semaines d'ouverture par an
+ * @returns Coût matière annuel HT (€)
+ */
+export function calculerCoutMatiereReelAnnuel(
+  recettes: RecetteFB[],
+  volumes: Record<string, number>,
+  ingredients: IngredientFB[],
+  semainesOuverture: number,
+): number {
+  const weeklyCout = recettes.reduce((sum, r) => {
+    const { coutMatiereTotalHT } = calculerFoodCostRecette(r, ingredients);
+    return sum + (volumes[r.id] ?? 0) * coutMatiereTotalHT;
+  }, 0);
+  return weeklyCout * (semainesOuverture ?? 0);
+}
+
+/**
+ * Calcule le Food Cost réel en pourcentage.
+ * Food Cost % = (Coût Matière Annuel / CA Annuel) × 100
+ *
+ * @param coutMatiereAnnuel - Coût matière annuel HT (€)
+ * @param caAnnuel          - CA annuel HT (€)
+ * @returns Food Cost en % (0 si caAnnuel = 0)
+ */
+export function calculerFoodCostReelPct(
+  coutMatiereAnnuel: number,
+  caAnnuel: number,
+): number {
+  if (caAnnuel === 0) return 0;
+  return (coutMatiereAnnuel / caAnnuel) * 100;
+}
+
+/**
+ * Calcule la Marge Brute réelle en pourcentage.
+ * Marge % = ((CA - Coût Matière) / CA) × 100
+ *
+ * @param coutMatiereAnnuel - Coût matière annuel HT (€)
+ * @param caAnnuel          - CA annuel HT (€)
+ * @returns Marge brute en % (0 si caAnnuel = 0)
+ */
+export function calculerMargeReellePct(
+  coutMatiereAnnuel: number,
+  caAnnuel: number,
+): number {
+  if (caAnnuel === 0) return 0;
+  return ((caAnnuel - coutMatiereAnnuel) / caAnnuel) * 100;
+}
