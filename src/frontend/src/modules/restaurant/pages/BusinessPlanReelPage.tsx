@@ -1,12 +1,5 @@
-/**
- * BusinessPlanReelPage.tsx — Moteur Bottom-Up / Compte de Résultat Réel
- * RÈGLE D'OR : Aucune arithmétique inline — toutes les valeurs dérivées
- * proviennent des fonctions pures de calculations.ts et finance.ts.
- */
-
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -15,661 +8,558 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import useStatsSimulateur from "@/core/hooks/useStatsSimulateur";
 import {
   selectTotalFraisFixesAnnuels,
   selectTotalMasseSalarialeAnnuelle,
   useAppStore,
 } from "@/core/store/useAppStore";
 import {
-  calculerCACibleAnnuel,
-  calculerCAReelAnnuel,
-  calculerCoutMatiereReelAnnuel,
-  calculerDelta,
-  calculerFoodCostReelPct,
-  calculerMargeBruteCibleAnnuelle,
-  calculerMargeBruteReelleAnnuelle,
-  calculerMargeReellePct,
-  calculerPointMortJournalier,
-} from "@/modules/restaurant/utils/calculations";
-import { calculerEBE } from "@/utils/math/finance";
-import { Minus, TrendingDown, TrendingUp } from "lucide-react";
+  ArrowDown,
+  ArrowUp,
+  BarChart3,
+  Minus,
+  TrendingUp,
+  Wallet,
+} from "lucide-react";
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatEuro(value: number): string {
-  return new Intl.NumberFormat("fr-FR", {
+const fmt = (n: number) =>
+  new Intl.NumberFormat("fr-FR", {
     style: "currency",
     currency: "EUR",
     maximumFractionDigits: 0,
-  }).format(value);
+  }).format(n);
+
+const fmtPct = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(1)} %`;
+
+// ─── Mix delta color logic ─────────────────────────────────────────────────
+
+function getMixColorClasses(absDelta: number): string {
+  if (absDelta <= 2) return "text-green-600 bg-green-50";
+  if (absDelta <= 5) return "text-amber-600 bg-amber-50";
+  return "text-red-600 bg-red-50";
 }
 
-function formatPct(value: number): string {
-  return `${value.toFixed(1)} %`;
-}
-
-function formatPctOfCA(value: number, ca: number): string {
-  if (ca === 0) return "—";
-  return formatPct((value / ca) * 100);
-}
-
-// ─── Delta Indicator ─────────────────────────────────────────────────────────
-
-interface DeltaIndicatorProps {
-  delta: number;
-  label?: string;
-  invertLogic?: boolean; // for Point Mort: lower is better
-}
-
-function DeltaIndicator({
-  delta,
-  label,
-  invertLogic = false,
-}: DeltaIndicatorProps) {
-  const isPositive = invertLogic ? delta < 0 : delta > 0;
-  const isNeutral = delta === 0;
-
-  if (isNeutral) {
-    return (
-      <span className="inline-flex items-center gap-1 text-muted-foreground text-sm font-medium">
-        <Minus className="h-3.5 w-3.5" />
-        {label ?? "—"}
-      </span>
-    );
-  }
-
+function MixDeltaBadge({ delta }: { delta: number }) {
+  const absDelta = Math.abs(delta);
+  const colorCn = getMixColorClasses(absDelta);
+  const sign = delta > 0 ? "+" : "";
   return (
     <span
-      className={`inline-flex items-center gap-1 text-sm font-semibold ${
-        isPositive
-          ? "text-emerald-600 dark:text-emerald-400"
-          : "text-red-600 dark:text-red-400"
-      }`}
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${colorCn}`}
     >
-      {isPositive ? (
-        <TrendingUp className="h-3.5 w-3.5" />
-      ) : (
-        <TrendingDown className="h-3.5 w-3.5" />
-      )}
-      {label}
+      {sign}
+      {delta.toFixed(1)} %
     </span>
   );
 }
 
-// ─── Comparison Card ─────────────────────────────────────────────────────────
+// ─── KPI Delta badge (CA / EBE) ────────────────────────────────────────────
 
-interface MetricComparaisonCardProps {
-  title: string;
-  subtitle?: string;
-  cibleLabel: string;
-  reelLabel: string;
-  cibleValue: string;
-  reelValue: string;
-  deltaValeur: number;
-  deltaPct?: number | null;
-  deltaValeurFormatted: string;
-  invertLogic?: boolean;
-  ocid: string;
+function DeltaBadge({ delta, pct }: { delta: number; pct: number }) {
+  if (Math.abs(delta) < 0.01) {
+    return (
+      <Badge
+        variant="outline"
+        className="gap-1 border-border bg-muted text-muted-foreground"
+      >
+        <Minus className="h-3 w-3" />À l'objectif
+      </Badge>
+    );
+  }
+  if (delta >= 0) {
+    return (
+      <Badge
+        variant="outline"
+        className="gap-1 border-emerald-300 bg-emerald-50 text-emerald-700"
+      >
+        <ArrowUp className="h-3 w-3" />
+        {fmt(delta)} ({fmtPct(pct)})
+      </Badge>
+    );
+  }
+  return (
+    <Badge
+      variant="outline"
+      className="gap-1 border-destructive/40 bg-destructive/10 text-destructive"
+    >
+      <ArrowDown className="h-3 w-3" />
+      {fmt(delta)} ({fmtPct(pct)})
+    </Badge>
+  );
 }
 
-function MetricComparaisonCard({
-  title,
-  subtitle,
-  cibleLabel,
-  reelLabel,
-  cibleValue,
-  reelValue,
-  deltaValeur,
-  deltaPct,
-  deltaValeurFormatted,
-  invertLogic = false,
-  ocid,
-}: MetricComparaisonCardProps) {
-  const isPositive = invertLogic ? deltaValeur < 0 : deltaValeur > 0;
-  const isNeutral = deltaValeur === 0;
-  const reelColorClass = isNeutral
-    ? "text-foreground"
-    : isPositive
-      ? "text-emerald-600 dark:text-emerald-400"
-      : "text-red-600 dark:text-red-400";
+// ─── KPI Card ─────────────────────────────────────────────────────────────────
 
+function KpiCard({
+  title,
+  cible,
+  reel,
+  delta,
+  pct,
+  ocid,
+}: {
+  title: string;
+  cible: number;
+  reel: number;
+  delta: number;
+  pct: number;
+  ocid: string;
+}) {
   return (
-    <Card className="border-border" data-ocid={ocid}>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-            {title}
-          </CardTitle>
-          {!isNeutral && (
-            <span
-              className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${
-                isPositive
-                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
-                  : "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400"
-              }`}
-            >
-              {isPositive ? (
-                <TrendingUp className="h-3 w-3" />
-              ) : (
-                <TrendingDown className="h-3 w-3" />
-              )}
-              {deltaValeurFormatted}
-            </span>
-          )}
-        </div>
-        {subtitle && (
-          <p className="text-xs text-muted-foreground">{subtitle}</p>
-        )}
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {/* Values row */}
-        <div className="grid grid-cols-2 divide-x divide-border">
-          <div className="pr-4">
-            <p className="text-xs text-muted-foreground mb-1">{cibleLabel}</p>
-            <p className="text-xl font-bold text-foreground tabular-nums">
-              {cibleValue}
+    <Card data-ocid={ocid}>
+      <CardContent className="pt-5 space-y-3">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {title}
+        </p>
+        <div className="flex items-end justify-between gap-2">
+          <div>
+            <p className="text-2xl font-bold font-display tabular-nums text-foreground">
+              {fmt(reel)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Cible : {fmt(cible)}
             </p>
           </div>
-          <div className="pl-4">
-            <p className="text-xs text-muted-foreground mb-1">{reelLabel}</p>
-            <p className={`text-xl font-bold tabular-nums ${reelColorClass}`}>
-              {reelValue}
-            </p>
-          </div>
-        </div>
-        {/* Delta row */}
-        <div className="pt-2 border-t border-border flex items-center justify-between">
-          <span className="text-xs text-muted-foreground">Écart</span>
-          <div className="flex items-center gap-3">
-            <DeltaIndicator
-              delta={deltaValeur}
-              label={deltaValeurFormatted}
-              invertLogic={invertLogic}
-            />
-            {deltaPct !== null && deltaPct !== undefined && (
-              <span
-                className={`text-xs font-medium tabular-nums ${
-                  isNeutral
-                    ? "text-muted-foreground"
-                    : isPositive
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-red-600 dark:text-red-400"
-                }`}
-              >
-                ({deltaPct >= 0 ? "+" : ""}
-                {deltaPct.toFixed(1)} %)
-              </span>
-            )}
-          </div>
+          <DeltaBadge delta={delta} pct={pct} />
         </div>
       </CardContent>
     </Card>
   );
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
+// ─── Component principal ──────────────────────────────────────────────────────
 
 export default function BusinessPlanReelPage() {
-  // ── Store reads ────────────────────────────────────────────────────────────
-  const recettes = useAppStore((s) => s.recettes);
-  const ingredients = useAppStore((s) => s.ingredients);
-  const categoriesCarte = useAppStore((s) => s.categoriesCarte);
+  // ── Hook de calcul centralisé ──────────────────────────────────────────────
+  const stats = useStatsSimulateur();
+
+  // ── Données du store ───────────────────────────────────────────────────────
   const hypothesesBP = useAppStore((s) => s.hypothesesBP);
   const salaries = useAppStore((s) => s.salaries);
   const fraisFixes = useAppStore((s) => s.fraisFixes);
-  const updateRecette = useAppStore((s) => s.updateRecette);
 
-  // ── Volumes: build the map from store (recette.volumeHebdo) ───────────────
-  const volumes = Object.fromEntries(
-    recettes.map((r) => [r.id, r.volumeHebdo ?? 0]),
-  );
+  // ── Calculs dérivés (annuels) ──────────────────────────────────────────────
+  const semainesOuverture = hypothesesBP.semainesOuverture || 48;
 
-  // ── Derived: selectors ─────────────────────────────────────────────────────
-  const masseSalarialeAnnuelle = selectTotalMasseSalarialeAnnuelle(salaries);
-  const chargesFixesAnnuelles = selectTotalFraisFixesAnnuels(fraisFixes);
-  const { semainesOuverture, joursOuvertureAn } = hypothesesBP;
+  const caHebdoReel = stats.caHebdoGlobal;
+  const caAnnuelReel = caHebdoReel * semainesOuverture;
 
-  // ── Food Cost cible — défaut 30 % si non configuré ─────────────────────────
-  const foodCostCiblePct = 30;
+  // CA Cible basé sur les hypothèses du store (couverts/jour × jours/an × ticket moyen 12 €)
+  const caAnnuelCible =
+    hypothesesBP.couvertsParJour * hypothesesBP.joursOuvertureAn * 12;
 
-  // ── Derived: CA ────────────────────────────────────────────────────────────
-  const caCibleAnnuel = calculerCACibleAnnuel(
-    hypothesesBP.couvertsParJour,
-    hypothesesBP.joursOuvertureAn,
-    hypothesesBP.ticketMoyenCible ?? 25,
-  );
-  const caReelAnnuel = calculerCAReelAnnuel(
-    recettes,
-    volumes,
-    semainesOuverture,
-  );
-  const deltaCa = calculerDelta(caCibleAnnuel, caReelAnnuel);
+  const totalMasseSalarialeAn = selectTotalMasseSalarialeAnnuelle(salaries);
+  const totalFraisFixesAn = selectTotalFraisFixesAnnuels(fraisFixes);
+  const totalChargesAn = totalMasseSalarialeAn + totalFraisFixesAn;
 
-  // ── Derived: Marge Brute ────────────────────────────────────────────────────
-  const margeBruteCibleAnnuelle = calculerMargeBruteCibleAnnuelle(
-    caCibleAnnuel,
-    foodCostCiblePct,
-  );
-  const coutMatiereReelAnnuel = calculerCoutMatiereReelAnnuel(
-    recettes,
-    volumes,
-    ingredients,
-    semainesOuverture,
-  );
-  const margeBruteReelleAnnuelle = calculerMargeBruteReelleAnnuelle(
-    caReelAnnuel,
-    coutMatiereReelAnnuel,
-  );
-  const deltaMarge = calculerDelta(
-    margeBruteCibleAnnuelle,
-    margeBruteReelleAnnuelle,
-  );
+  // Marges
+  const ebeReel = caAnnuelReel - totalChargesAn;
+  const ebeCible = caAnnuelCible - totalChargesAn;
+  const pctEbeReel = caAnnuelReel > 0 ? (ebeReel / caAnnuelReel) * 100 : 0;
+  const pctEbeCible = caAnnuelCible > 0 ? (ebeCible / caAnnuelCible) * 100 : 0;
 
-  // ── Derived: Point Mort ────────────────────────────────────────────────────
-  const tauxMargeContribution = 100 - foodCostCiblePct; // 70%
-  const pointMortJournalier = calculerPointMortJournalier(
-    chargesFixesAnnuelles,
-    masseSalarialeAnnuelle,
-    joursOuvertureAn,
-    tauxMargeContribution,
-  );
-  const caJournalierReel =
-    joursOuvertureAn > 0 ? caReelAnnuel / joursOuvertureAn : 0;
-  const deltaPointMort = calculerDelta(pointMortJournalier, caJournalierReel);
-  // For Point Mort: CA Réel > Point Mort = profitable (invertLogic)
+  // Deltas
+  const deltaCA = caAnnuelReel - caAnnuelCible;
+  const deltaCAPct = caAnnuelCible > 0 ? (deltaCA / caAnnuelCible) * 100 : 0;
+  const deltaEBE = ebeReel - ebeCible;
+  const deltaEBEPct =
+    Math.abs(ebeCible) > 0 ? (deltaEBE / Math.abs(ebeCible)) * 100 : 0;
 
-  // ── Derived: P&L ──────────────────────────────────────────────────────────
-  const foodCostReelPct = calculerFoodCostReelPct(
-    coutMatiereReelAnnuel,
-    caReelAnnuel,
-  );
-  const margeBruteReellePct = calculerMargeReellePct(
-    coutMatiereReelAnnuel,
-    caReelAnnuel,
-  );
-  const ebeReel = calculerEBE(
-    margeBruteReelleAnnuelle,
-    chargesFixesAnnuelles,
-    masseSalarialeAnnuelle,
-  );
+  // Seuil de rentabilité hebdo (charges / nb semaines)
+  const seuilRentabiliteHebdo =
+    semainesOuverture > 0 ? totalChargesAn / semainesOuverture : 0;
+  const deltaSeuilReel = caHebdoReel - seuilRentabiliteHebdo;
+  const deltaSeuilPct =
+    seuilRentabiliteHebdo > 0
+      ? (deltaSeuilReel / seuilRentabiliteHebdo) * 100
+      : 0;
 
-  // ── Color helpers ──────────────────────────────────────────────────────────
-  const ebeColor =
-    ebeReel > 0
-      ? "text-emerald-600 dark:text-emerald-400"
-      : ebeReel < 0
-        ? "text-red-600 dark:text-red-400"
-        : "text-muted-foreground";
+  console.log("[DEBUG BP Réel] statsParCategorie:", stats.statsParCategorie);
 
-  // ── Compte de résultat rows ────────────────────────────────────────────────
-  const compteResultatRows = [
-    {
-      label: "Chiffre d'Affaires Réel",
-      valeur: caReelAnnuel,
-      pctCA: formatPctOfCA(caReelAnnuel, caReelAnnuel),
-      bold: false,
-      separator: false,
-    },
-    {
-      label: "(−) Coût Matières Réel",
-      valeur: -coutMatiereReelAnnuel,
-      pctCA: formatPctOfCA(coutMatiereReelAnnuel, caReelAnnuel),
-      bold: false,
-      separator: false,
-    },
-    {
-      label: "(=) Marge Brute Réelle",
-      valeur: margeBruteReelleAnnuelle,
-      pctCA: formatPct(margeBruteReellePct),
-      bold: true,
-      separator: true,
-    },
-    {
-      label: "(−) Masse Salariale",
-      valeur: -masseSalarialeAnnuelle,
-      pctCA: formatPctOfCA(masseSalarialeAnnuelle, caReelAnnuel),
-      bold: false,
-      separator: false,
-    },
-    {
-      label: "(−) Charges Fixes",
-      valeur: -chargesFixesAnnuelles,
-      pctCA: formatPctOfCA(chargesFixesAnnuelles, caReelAnnuel),
-      bold: false,
-      separator: false,
-    },
-    {
-      label: "(=) EBE — Résultat Brut d'Exploitation",
-      valeur: ebeReel,
-      pctCA: formatPctOfCA(Math.abs(ebeReel), caReelAnnuel),
-      bold: true,
-      separator: true,
-      colorClass: ebeColor,
-    },
-  ];
-
-  // ── Lookup: catégorie nom ──────────────────────────────────────────────────
-  const getCategorieNom = (r: {
-    categorie: string;
-    categorieId?: string;
-  }): string => {
-    if (r.categorieId) {
-      const cat = categoriesCarte.find((c) => c.id === r.categorieId);
-      if (cat) return cat.nom;
-    }
-    return r.categorie ?? "—";
-  };
-
-  // ── Empty state ────────────────────────────────────────────────────────────
-  if (recettes.length === 0) {
-    return (
-      <div
-        className="flex flex-col items-center justify-center py-24 gap-4 text-center"
-        data-ocid="bp-reel.empty_state"
-      >
-        <TrendingDown className="h-12 w-12 text-muted-foreground" />
-        <h2 className="font-display text-xl font-semibold text-foreground">
-          Aucune fiche technique disponible
-        </h2>
-        <p className="text-muted-foreground max-w-sm">
-          Créez des recettes dans la section{" "}
-          <span className="font-medium text-foreground">Fiches Techniques</span>{" "}
-          pour alimenter le moteur Bottom-Up et générer votre compte de résultat
-          réel.
-        </p>
-      </div>
-    );
-  }
-
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-8" data-ocid="bp-reel.page">
-      {/* ── Section 1 : Comparatif Stratégique vs Réel ──────────────────────── */}
-      <section data-ocid="bp-reel.comparatif.section">
-        <div className="mb-4">
-          <h2 className="font-display text-lg font-semibold text-foreground">
-            Comparatif Stratégique vs Réel
-          </h2>
+    <div className="space-y-6" data-ocid="bp-reel.page">
+      {/* ── En-tête ────────────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-3">
+        <BarChart3 className="h-5 w-5 text-primary" />
+        <div>
+          <h1 className="font-display text-2xl font-semibold text-foreground">
+            Business Plan Réel
+          </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Confrontez vos objectifs BP Stratégique (Top-Down) avec les
-            résultats calculés depuis les volumes réels (Bottom-Up). Mise à jour
-            automatique.
+            Comparatif Stratégique vs Réel — basé sur les volumes du Laboratoire
           </p>
         </div>
+      </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {/* Métrique 1 — Chiffre d'Affaires */}
-          <MetricComparaisonCard
-            title="Chiffre d'Affaires"
-            subtitle={`Base : ${hypothesesBP.couvertsParJour} cvts/j × ${hypothesesBP.joursOuvertureAn} j × ${formatEuro(hypothesesBP.ticketMoyenCible ?? 25)} ticket`}
-            cibleLabel="CA Stratégique"
-            reelLabel="CA Réel"
-            cibleValue={formatEuro(caCibleAnnuel)}
-            reelValue={formatEuro(caReelAnnuel)}
-            deltaValeur={deltaCa.deltaValeur}
-            deltaPct={deltaCa.deltaPct}
-            deltaValeurFormatted={`${deltaCa.deltaValeur >= 0 ? "+" : ""}${formatEuro(deltaCa.deltaValeur)}`}
-            ocid="bp-reel.comparatif.ca.card"
-          />
-
-          {/* Métrique 2 — Marge Brute */}
-          <MetricComparaisonCard
-            title="Marge Brute"
-            subtitle={`Food Cost cible appliqué : ${foodCostCiblePct} %`}
-            cibleLabel="Marge Cible"
-            reelLabel="Marge Réelle"
-            cibleValue={formatEuro(margeBruteCibleAnnuelle)}
-            reelValue={formatEuro(margeBruteReelleAnnuelle)}
-            deltaValeur={deltaMarge.deltaValeur}
-            deltaPct={deltaMarge.deltaPct}
-            deltaValeurFormatted={`${deltaMarge.deltaValeur >= 0 ? "+" : ""}${formatEuro(deltaMarge.deltaValeur)}`}
-            ocid="bp-reel.comparatif.marge.card"
-          />
-
-          {/* Métrique 3 — Point Mort Journalier */}
-          <MetricComparaisonCard
-            title="Point Mort Journalier"
-            subtitle="CA/jour nécessaire pour couvrir charges + salaires"
-            cibleLabel="Point Mort Cible"
-            reelLabel="CA/jour Réel"
-            cibleValue={formatEuro(pointMortJournalier)}
-            reelValue={formatEuro(caJournalierReel)}
-            deltaValeur={deltaPointMort.deltaValeur}
-            deltaPct={null}
-            deltaValeurFormatted={`${deltaPointMort.deltaValeur >= 0 ? "+" : ""}${formatEuro(deltaPointMort.deltaValeur)}`}
-            invertLogic={false}
-            ocid="bp-reel.comparatif.pointmort.card"
-          />
-        </div>
-
-        {/* Summary status banner */}
-        <div
-          className={`mt-4 flex items-center gap-3 rounded-lg border px-4 py-3 text-sm ${
-            caJournalierReel >= pointMortJournalier && caReelAnnuel > 0
-              ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/30"
-              : "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30"
-          }`}
-          data-ocid="bp-reel.comparatif.status_banner"
-        >
-          {caJournalierReel >= pointMortJournalier && caReelAnnuel > 0 ? (
-            <TrendingUp className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-          ) : (
-            <TrendingDown className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0" />
-          )}
-          <span
-            className={`font-medium ${
-              caJournalierReel >= pointMortJournalier && caReelAnnuel > 0
-                ? "text-emerald-700 dark:text-emerald-400"
-                : "text-red-700 dark:text-red-400"
-            }`}
-          >
-            {caJournalierReel >= pointMortJournalier && caReelAnnuel > 0
-              ? `Rentable — Le CA journalier réel (${formatEuro(caJournalierReel)}/j) dépasse le point mort (${formatEuro(pointMortJournalier)}/j).`
-              : `Non rentable — Le CA journalier réel (${formatEuro(caJournalierReel)}/j) est inférieur au point mort (${formatEuro(pointMortJournalier)}/j). Augmentez les volumes ou réduisez les charges.`}
-          </span>
-        </div>
-      </section>
-
-      {/* ── Section 2 : Saisie des Volumes ──────────────────────────────────── */}
-      <section data-ocid="bp-reel.volumes.section">
-        <h2 className="font-display text-lg font-semibold text-foreground mb-1">
-          Volume estimé / semaine par recette
-        </h2>
-        <p className="text-sm text-muted-foreground mb-4">
-          Renseignez le volume hebdomadaire estimé pour chaque recette. Toutes
-          les métriques ci-dessus se mettent à jour en temps réel.
-        </p>
-        <Card>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Recette</TableHead>
-                <TableHead>Catégorie</TableHead>
-                <TableHead className="text-right">Prix HT</TableHead>
-                <TableHead className="text-right w-44">
-                  Volume estimé / semaine
-                </TableHead>
-                <TableHead className="text-right">CA semaine</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {recettes.map((recette, idx) => {
-                const vol = volumes[recette.id] ?? 0;
-                const caSemaine = vol * recette.prixVenteHT;
-                return (
-                  <TableRow
-                    key={recette.id}
-                    data-ocid={`bp-reel.volumes.item.${idx + 1}`}
-                  >
-                    <TableCell className="font-medium">{recette.nom}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-xs font-normal">
-                        {getCategorieNom(recette)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatEuro(recette.prixVenteHT)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Input
-                        type="number"
-                        min={0}
-                        value={vol === 0 ? "" : vol}
-                        placeholder="0"
-                        className="w-28 text-right ml-auto"
-                        data-ocid={`bp-reel.volumes.input.${idx + 1}`}
-                        onChange={(e) => {
-                          const parsed = Number.parseFloat(e.target.value);
-                          updateRecette(recette.id, {
-                            volumeHebdo: Number.isNaN(parsed) ? 0 : parsed,
-                          });
-                        }}
-                      />
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums text-muted-foreground">
-                      {caSemaine > 0 ? formatEuro(caSemaine) : "—"}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </Card>
-      </section>
-
-      {/* ── Section 3 : Compte de Résultat Bottom-Up ────────────────────────── */}
-      <section data-ocid="bp-reel.compte-resultat.section">
-        <h2 className="font-display text-lg font-semibold text-foreground mb-1">
-          Compte de Résultat Bottom-Up
-        </h2>
-        <p className="text-sm text-muted-foreground mb-4">
-          Structure P&amp;L annuelle calculée à partir des volumes saisis, des
-          coûts matières réels et des charges du store.
-        </p>
-
-        {/* KPI mini-bar */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-          {[
-            { label: "CA Annuel Réel", value: formatEuro(caReelAnnuel) },
-            {
-              label: "Food Cost Réel",
-              value: formatPct(foodCostReelPct),
-              alert: foodCostReelPct > 35,
-            },
-            {
-              label: "Marge Brute Réelle",
-              value: formatPct(margeBruteReellePct),
-              positive: margeBruteReellePct >= 65,
-            },
-            {
-              label: "EBE Annuel",
-              value: formatEuro(ebeReel),
-              colored: true,
-              positive: ebeReel >= 0,
-            },
-          ].map((kpi) => (
-            <div
-              key={kpi.label}
-              className="rounded-lg border border-border bg-card px-4 py-3"
-            >
-              <p className="text-xs text-muted-foreground">{kpi.label}</p>
-              <p
-                className={`text-lg font-bold tabular-nums mt-0.5 ${
-                  kpi.alert
-                    ? "text-red-600 dark:text-red-400"
-                    : kpi.colored
-                      ? kpi.positive
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : "text-red-600 dark:text-red-400"
-                      : kpi.positive !== undefined
-                        ? kpi.positive
-                          ? "text-emerald-600 dark:text-emerald-400"
-                          : "text-foreground"
-                        : "text-foreground"
-                }`}
-              >
-                {kpi.value}
-              </p>
+      {/* ── KPI Cards ──────────────────────────────────────────────────────── */}
+      <div
+        className="grid grid-cols-1 gap-4 sm:grid-cols-3"
+        data-ocid="bp-reel.kpi.section"
+      >
+        <KpiCard
+          title="CA Annuel Réel"
+          cible={caAnnuelCible}
+          reel={caAnnuelReel}
+          delta={deltaCA}
+          pct={deltaCAPct}
+          ocid="bp-reel.ca-annuel.card"
+        />
+        <KpiCard
+          title="EBE Annuel Réel"
+          cible={ebeCible}
+          reel={ebeReel}
+          delta={deltaEBE}
+          pct={deltaEBEPct}
+          ocid="bp-reel.ebe.card"
+        />
+        <Card data-ocid="bp-reel.seuil.card">
+          <CardContent className="pt-5 space-y-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Seuil de Rentabilité / semaine
+            </p>
+            <div className="flex items-end justify-between gap-2">
+              <div>
+                <p className="text-2xl font-bold font-display tabular-nums text-foreground">
+                  {fmt(seuilRentabiliteHebdo)}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  CA réel/semaine : {fmt(caHebdoReel)}
+                </p>
+              </div>
+              <DeltaBadge delta={deltaSeuilReel} pct={deltaSeuilPct} />
             </div>
-          ))}
-        </div>
+          </CardContent>
+        </Card>
+      </div>
 
-        <Card>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-full">Ligne</TableHead>
-                <TableHead className="text-right whitespace-nowrap">
-                  Montant (€/an)
-                </TableHead>
-                <TableHead className="text-right whitespace-nowrap">
-                  % CA
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {compteResultatRows.map((row) => (
-                <TableRow
-                  key={row.label}
-                  className={row.separator ? "border-t-2 border-border" : ""}
-                  data-ocid={`bp-reel.compte-resultat.${row.label.replace(/[^a-z0-9]/gi, "-").toLowerCase()}`}
-                >
-                  <TableCell
-                    className={
-                      row.bold ? "font-semibold" : "text-muted-foreground"
-                    }
-                  >
-                    {row.label}
+      {/* ── Compte de Résultat Hebdo Réel ──────────────────────────────────── */}
+      <Card data-ocid="bp-reel.cr-hebdo.card">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">
+              A
+            </span>
+            Compte de Résultat Hebdomadaire Réel
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40 hover:bg-muted/40">
+                  <TableHead className="pl-6">Indicateur</TableHead>
+                  <TableHead className="text-right">Hebdo</TableHead>
+                  <TableHead className="text-right pr-6">
+                    Annuel ({semainesOuverture} sem.)
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow data-ocid="bp-reel.ca.row">
+                  <TableCell className="pl-6 font-semibold">
+                    Chiffre d'Affaires HT
                   </TableCell>
-                  <TableCell
-                    className={`text-right tabular-nums font-mono ${
-                      row.colorClass ??
-                      (row.valeur < 0
-                        ? "text-red-600 dark:text-red-400"
-                        : "text-foreground")
-                    } ${row.bold ? "font-semibold text-base" : ""}`}
-                  >
-                    {row.valeur < 0
-                      ? `(${formatEuro(Math.abs(row.valeur))})`
-                      : formatEuro(row.valeur)}
+                  <TableCell className="text-right tabular-nums font-semibold">
+                    {fmt(caHebdoReel)}
                   </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground text-sm">
-                    {row.pctCA}
+                  <TableCell className="text-right tabular-nums font-semibold pr-6">
+                    {fmt(caAnnuelReel)}
                   </TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Card>
+                <TableRow>
+                  <TableCell className="pl-6 text-muted-foreground">
+                    Charges fixes
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {fmt(totalFraisFixesAn / semainesOuverture)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground pr-6">
+                    {fmt(totalFraisFixesAn)}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="pl-6 text-muted-foreground">
+                    Masse salariale
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {fmt(totalMasseSalarialeAn / semainesOuverture)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground pr-6">
+                    {fmt(totalMasseSalarialeAn)}
+                  </TableCell>
+                </TableRow>
+                <TableRow className="border-t-2 border-border bg-muted/20">
+                  <TableCell className="pl-6 font-bold text-foreground">
+                    EBE
+                  </TableCell>
+                  <TableCell
+                    className={`text-right tabular-nums font-bold ${
+                      ebeReel / semainesOuverture >= 0
+                        ? "text-emerald-600"
+                        : "text-destructive"
+                    }`}
+                  >
+                    {fmt(ebeReel / semainesOuverture)}
+                  </TableCell>
+                  <TableCell
+                    className={`text-right tabular-nums font-bold pr-6 ${
+                      ebeReel >= 0 ? "text-emerald-600" : "text-destructive"
+                    }`}
+                    data-ocid="bp-reel.ebe-annuel.cell"
+                  >
+                    {fmt(ebeReel)}
+                  </TableCell>
+                </TableRow>
+                <TableRow className="bg-muted/10">
+                  <TableCell className="pl-6 text-sm text-muted-foreground italic">
+                    % EBE / CA
+                  </TableCell>
+                  <TableCell
+                    colSpan={2}
+                    className="text-right tabular-nums text-sm italic pr-6"
+                  >
+                    <span
+                      className={
+                        pctEbeReel >= 0
+                          ? "text-emerald-600"
+                          : "text-destructive"
+                      }
+                    >
+                      {fmtPct(pctEbeReel)}
+                    </span>
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
 
-        {/* EBE highlight */}
-        {caReelAnnuel > 0 && (
-          <div
-            className={`mt-4 flex items-center gap-3 rounded-lg border p-4 ${
-              ebeReel >= 0
-                ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/30"
-                : "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30"
-            }`}
-            data-ocid="bp-reel.ebe.highlight"
-          >
-            {ebeReel >= 0 ? (
-              <TrendingUp className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-            ) : (
-              <TrendingDown className="h-5 w-5 text-red-600 dark:text-red-400 shrink-0" />
-            )}
-            <div>
-              <p className={`font-semibold ${ebeColor}`}>
-                EBE Annuel Réel : {formatEuro(ebeReel)}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {ebeReel >= 0
-                  ? "L'activité dégage un excédent — les charges sont couvertes par le CA réel."
-                  : "Attention : les charges dépassent le CA réel — le modèle économique est déficitaire à ces volumes."}
+      {/* ── Comparatif Stratégique vs Réel ─────────────────────────────────── */}
+      <Card data-ocid="bp-reel.comparatif.card">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">
+              B
+            </span>
+            Comparatif Stratégique vs Réel
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40 hover:bg-muted/40">
+                  <TableHead className="pl-6">Indicateur</TableHead>
+                  <TableHead className="text-right">
+                    Cible (Stratégique)
+                  </TableHead>
+                  <TableHead className="text-right">
+                    Réel (Laboratoire)
+                  </TableHead>
+                  <TableHead className="text-right pr-6">Delta</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {/* ── KPIs financiers ── */}
+                <TableRow data-ocid="bp-reel.comparatif.ca-annuel.row">
+                  <TableCell className="pl-6 font-medium">
+                    CA Annuel HT
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {fmt(caAnnuelCible)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {fmt(caAnnuelReel)}
+                  </TableCell>
+                  <TableCell className="text-right pr-6">
+                    <DeltaBadge delta={deltaCA} pct={deltaCAPct} />
+                  </TableCell>
+                </TableRow>
+                <TableRow data-ocid="bp-reel.comparatif.ebe.row">
+                  <TableCell className="pl-6 font-medium">EBE Annuel</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {fmt(ebeCible)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {fmt(ebeReel)}
+                  </TableCell>
+                  <TableCell className="text-right pr-6">
+                    <DeltaBadge delta={deltaEBE} pct={deltaEBEPct} />
+                  </TableCell>
+                </TableRow>
+                <TableRow data-ocid="bp-reel.comparatif.pct-ebe.row">
+                  <TableCell className="pl-6 text-sm text-muted-foreground italic">
+                    % EBE / CA
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-sm italic">
+                    {fmtPct(pctEbeCible)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-sm italic">
+                    {fmtPct(pctEbeReel)}
+                  </TableCell>
+                  <TableCell className="pr-6" />
+                </TableRow>
+
+                {/* ── Séparateur Mix Produit ── */}
+                <TableRow className="bg-muted/30">
+                  <TableCell
+                    colSpan={4}
+                    className="pl-6 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                  >
+                    Mix Produit par Catégorie
+                  </TableCell>
+                </TableRow>
+
+                {/* ── Lignes Mix par catégorie (dynamiques) ── */}
+                {stats.statsParCategorie.map((cat, i) => {
+                  const delta = cat.mixReelPct - cat.mixCiblePct;
+                  const absDelta = Math.abs(delta);
+                  const mixReelColorCn = getMixColorClasses(absDelta);
+                  return (
+                    <TableRow
+                      key={cat.id}
+                      data-ocid={`bp-reel.comparatif.mix.item.${i + 1}`}
+                    >
+                      <TableCell className="pl-6 font-medium">
+                        Mix {cat.nom} (%)
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-muted-foreground">
+                        {cat.mixCiblePct.toFixed(1)} %
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${mixReelColorCn}`}
+                        >
+                          {cat.mixReelPct.toFixed(1)} %
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right pr-6">
+                        <MixDeltaBadge delta={delta} />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Mix Réel par Catégorie (Section C) ─────────────────────────────── */}
+      <Card data-ocid="bp-reel.mix.card">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">
+              C
+            </span>
+            Mix Réel par Catégorie
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {stats.volumeTotalGlobal === 0 ? (
+            <div
+              className="flex flex-col items-center justify-center py-12 gap-3 text-center"
+              data-ocid="bp-reel.mix.empty_state"
+            >
+              <TrendingUp className="h-10 w-10 text-muted-foreground/40" />
+              <p className="font-medium text-foreground">Aucun volume saisi</p>
+              <p className="text-sm text-muted-foreground max-w-xs">
+                Saisissez des volumes dans le Laboratoire Recettes pour voir le
+                mix réel de chaque catégorie.
               </p>
             </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40 hover:bg-muted/40">
+                    <TableHead className="pl-6">Catégorie</TableHead>
+                    <TableHead className="text-right">Mix Cible</TableHead>
+                    <TableHead className="text-right">Mix Réel</TableHead>
+                    <TableHead className="text-right pr-6">Delta</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {stats.statsParCategorie.map((cat, i) => {
+                    const delta = cat.mixReelPct - cat.mixCiblePct;
+                    const mixReelColor =
+                      Math.abs(delta) > 5 ? "text-red-600 font-semibold" : "";
+                    const deltaColor =
+                      Math.abs(delta) <= 2
+                        ? "text-green-600"
+                        : Math.abs(delta) <= 5
+                          ? "text-amber-600"
+                          : "text-red-600";
+                    return (
+                      <TableRow
+                        key={cat.id}
+                        data-ocid={`bp-reel.mix.item.${i + 1}`}
+                      >
+                        <TableCell className="pl-6">{cat.nom}</TableCell>
+                        <TableCell className="text-right">
+                          {cat.mixCiblePct.toFixed(1)}%
+                        </TableCell>
+                        <TableCell className={`text-right ${mixReelColor}`}>
+                          {cat.mixReelPct.toFixed(1)}%
+                        </TableCell>
+                        <TableCell className={`text-right pr-6 ${deltaColor}`}>
+                          {delta > 0 ? "+" : ""}
+                          {delta.toFixed(1)}%
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Détail des Charges ─────────────────────────────────────────────── */}
+      <Card data-ocid="bp-reel.charges.card">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Wallet className="h-4 w-4 text-muted-foreground" />
+            Détail des Charges Annuelles
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-1">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Frais Fixes
+              </p>
+              <p className="text-xl font-bold tabular-nums text-foreground">
+                {fmt(totalFraisFixesAn)}
+              </p>
+              <p className="text-xs text-muted-foreground">par an</p>
+            </div>
+            <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-1">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Masse Salariale
+              </p>
+              <p className="text-xl font-bold tabular-nums text-foreground">
+                {fmt(totalMasseSalarialeAn)}
+              </p>
+              <p className="text-xs text-muted-foreground">par an</p>
+            </div>
+            <div className="rounded-lg border border-border bg-primary/10 p-4 space-y-1">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Total Charges
+              </p>
+              <p className="text-xl font-bold tabular-nums text-foreground">
+                {fmt(totalChargesAn)}
+              </p>
+              <p className="text-xs text-muted-foreground">par an</p>
+            </div>
           </div>
-        )}
-      </section>
+        </CardContent>
+      </Card>
     </div>
   );
 }

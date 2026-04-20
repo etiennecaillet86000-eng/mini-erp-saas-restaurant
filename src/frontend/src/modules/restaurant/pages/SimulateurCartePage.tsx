@@ -1,73 +1,88 @@
-/**
- * SimulateurCartePage — Laboratoire Recettes (Sprint 8.2)
- *
- * RÈGLE : Aucun calcul inline. Toute la logique mathématique passe par les
- * fonctions pures de calculations.ts.
- *
- * Sections :
- *  A — Tableau comparatif Mix Cible vs Mix Réel (catégories dynamiques du store)
- *  B — Grille de saisie des volumes par recette
- *  C — Moyennes par Catégories (volume total + Mix Réel par catégorie)
- *  D — Bilan KPI hebdomadaire + projection annuelle
- */
-
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
   TableCell,
-  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import useStatsSimulateur from "@/core/hooks/useStatsSimulateur";
 import { useAppStore } from "@/core/store/useAppStore";
 import {
   AlertTriangle,
   BookOpen,
+  RotateCcw,
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   calculerCAReel,
   calculerFoodCostRecette,
   calculerFoodCostReel,
   calculerMargeRecette,
-  getMixReel,
 } from "../utils/calculations";
 
-// ─── Formatters ───────────────────────────────────────────────────────────────
+// ─── Category dot colours (ACTION 3) ─────────────────────────────────────────
+
+const CATEGORY_DOT_COLORS: Record<string, string> = {
+  cat_boissons: "bg-blue-500",
+  cat_snacking: "bg-amber-400",
+  cat_plats: "bg-red-500",
+  cat_desserts: "bg-pink-400",
+  cat_acc: "bg-green-500",
+  cat_formules: "bg-indigo-500",
+};
+
+// Colour tokens per category (badge pills in Catégorie column)
+const CATEGORIE_COLORS: Record<string, string> = {
+  Boissons: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  Snacking:
+    "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+  "Plats chauds":
+    "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+  Desserts: "bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300",
+  Accompagnements:
+    "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
+  Formules:
+    "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function getCategorieCn(categorie: string): string {
+  return CATEGORIE_COLORS[categorie] ?? "bg-muted text-muted-foreground";
+}
 
 function formatEur(value: number): string {
-  return new Intl.NumberFormat("fr-FR", {
+  return `${new Intl.NumberFormat("fr-FR", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-    style: "currency",
-    currency: "EUR",
-  }).format(value);
+  }).format(value)} €`;
 }
 
 function formatPct(value: number, decimals = 1): string {
   return `${value.toFixed(decimals).replace(".", ",")} %`;
-}
-
-// ─── Mix Réel colour helpers ──────────────────────────────────────────────────
-
-function mixReelCn(reel: number, cible: number): string {
-  if (reel === 0 && cible === 0) return "text-muted-foreground";
-  if (reel > cible)
-    return "text-emerald-600 dark:text-emerald-400 font-semibold";
-  if (reel < cible) return "text-destructive font-semibold";
-  return "text-foreground font-semibold";
-}
-
-function mixReelDiff(reel: number, cible: number): string | null {
-  const diff = reel - cible;
-  if (diff === 0 || (reel === 0 && cible === 0)) return null;
-  const sign = diff > 0 ? "+" : "";
-  return `${sign}${diff.toFixed(1).replace(".", ",")} %`;
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -120,10 +135,12 @@ function KpiCard({
   );
 }
 
-function EmptyRecettes() {
+// ─── Empty state ──────────────────────────────────────────────────────────────
+
+function SectionBEmpty() {
   const handleNavigate = () => {
     window.dispatchEvent(
-      new CustomEvent("app-navigate", { detail: "recettes" }),
+      new CustomEvent("app-navigate", { detail: "fiches-techniques" }),
     );
   };
 
@@ -159,249 +176,209 @@ function EmptyRecettes() {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function SimulateurCartePage() {
+  // ── Individual Zustand selectors (never grouped destructuring) ────────────
   const recettes = useAppStore((s) => s.recettes);
-  const ingredients = useAppStore((s) => s.ingredients);
   const categoriesCarte = useAppStore((s) => s.categoriesCarte);
-  const hypothesesBP = useAppStore((s) => s.hypothesesBP);
+  const ingredients = useAppStore((s) => s.ingredients);
   const updateRecette = useAppStore((s) => s.updateRecette);
+  const resetVolumes = useAppStore((s) => s.resetVolumes);
 
-  // ── Lookup: categorieId → nom ─────────────────────────────────────────────
+  // ── Central stats hook (volumes, CA, Mix Réel per category) ──────────────
+  const stats = useStatsSimulateur();
 
-  const categorieNomById = useMemo<Record<string, string>>(
-    () => Object.fromEntries(categoriesCarte.map((c) => [c.id, c.nom])),
-    [categoriesCarte],
-  );
+  // ── ACTION 1: Local filter state ──────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterCategorie, setFilterCategorie] = useState("all");
 
-  // ── Total volume (all recipes) — memoized, recomputes when recettes changes
-  const totalVolumeHebdo = useMemo(
-    () => recettes.reduce((sum, r) => sum + (r.volumeHebdo ?? 0), 0),
-    [recettes],
-  );
+  // ── ACTION 2: Reset dialog state ──────────────────────────────────────────
+  const [showResetDialog, setShowResetDialog] = useState(false);
 
-  // ── Section A — Mix data (one row per CategorieCarte) ─────────────────────
-  // Mix Réel = (sum of volumeHebdo for recettes in this category /
-  //             sum of ALL recettes' volumeHebdo) * 100
-  // Handles total=0 → returns 0 (no NaN/Infinity)
-  // totalVolumeHebdo is a plain const — always in sync, no stale dependency.
+  // ── Filtered recipes (live, does NOT touch the store) ─────────────────────
+  const recettesFiltrees = useMemo(() => {
+    return recettes.filter((r) => {
+      const matchNom = r.nom.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchCat =
+        filterCategorie === "all" || r.categorieId === filterCategorie;
+      return matchNom && matchCat;
+    });
+  }, [recettes, searchQuery, filterCategorie]);
 
-  const mixRows = useMemo(
+  // ── Derived computations ──────────────────────────────────────────────────
+  const recetteCouts = useMemo(
     () =>
-      categoriesCarte.map((cat) => {
-        const reel = getMixReel(recettes, totalVolumeHebdo, cat.id);
-        return { id: cat.id, nom: cat.nom, cible: cat.mixCiblePct, reel };
+      recettes.map((r) => {
+        const { coutMatiereTotalHT } = calculerFoodCostRecette(r, ingredients);
+        return { id: r.id, coutMatiereTotalHT };
       }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [categoriesCarte, recettes, totalVolumeHebdo],
-  );
-
-  const totalMixCible = useMemo(
-    () => categoriesCarte.reduce((sum, c) => sum + c.mixCiblePct, 0),
-    [categoriesCarte],
-  );
-
-  const totalMixReel = useMemo(
-    () => mixRows.reduce((sum, row) => sum + row.reel, 0),
-    [mixRows],
-  );
-
-  // ── Section B — Per-recette costs & marge ─────────────────────────────────
-
-  const coutById = useMemo<Record<string, number>>(
-    () =>
-      Object.fromEntries(
-        recettes.map((r) => [
-          r.id,
-          calculerFoodCostRecette(r, ingredients).coutMatiereTotalHT,
-        ]),
-      ),
     [recettes, ingredients],
   );
 
-  const caHebdo = useMemo(
+  const coutById = useMemo(
+    () =>
+      Object.fromEntries(recetteCouts.map((c) => [c.id, c.coutMatiereTotalHT])),
+    [recetteCouts],
+  );
+
+  const totalCA = useMemo(
     () =>
       calculerCAReel(
-        recettes.map((r) => r.volumeHebdo ?? 0),
+        recettes.map((r) => Number(r.volumeHebdo) || 0),
         recettes.map((r) => r.prixVenteHT),
       ),
     [recettes],
   );
 
-  const totalCoutMatiereHebdo = useMemo(
+  const totalCoutMatiere = useMemo(
     () =>
       recettes.reduce(
-        (sum, r) => sum + (r.volumeHebdo ?? 0) * (coutById[r.id] ?? 0),
+        (sum, r) => sum + (Number(r.volumeHebdo) || 0) * (coutById[r.id] ?? 0),
         0,
       ),
     [recettes, coutById],
   );
 
   const foodCostGlobal = useMemo(
-    () => calculerFoodCostReel(totalCoutMatiereHebdo, caHebdo),
-    [totalCoutMatiereHebdo, caHebdo],
+    () => calculerFoodCostReel(totalCoutMatiere, totalCA),
+    [totalCoutMatiere, totalCA],
   );
 
-  const margeBruteGlobale = useMemo(() => {
-    if (caHebdo === 0) return 0;
-    return ((caHebdo - totalCoutMatiereHebdo) / caHebdo) * 100;
-  }, [caHebdo, totalCoutMatiereHebdo]);
-
-  // ── Section C — Synthèse par Catégorie ──────────────────────────────────
-  // Calls getMixReel with the SAME totalVolumeHebdo as Section A —
-  // single source of truth, Section A and Section C always show identical %.
-
-  const categorieStats = useMemo(
-    () =>
-      categoriesCarte.map((cat) => {
-        const volumeTotal = recettes
-          .filter((r) => r.categorieId === cat.id)
-          .reduce((sum, r) => sum + (r.volumeHebdo ?? 0), 0);
-        const mixReel = getMixReel(recettes, totalVolumeHebdo, cat.id);
-        return { id: cat.id, nom: cat.nom, volumeTotal, mixReel };
-      }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [categoriesCarte, recettes, totalVolumeHebdo],
+  const margeBruteGlobale = useMemo(
+    () => (totalCA > 0 ? ((totalCA - totalCoutMatiere) / totalCA) * 100 : 0),
+    [totalCA, totalCoutMatiere],
   );
 
-  // ── Section D — Annual projection ────────────────────────────────────────
-
-  const caAnnuel = useMemo(
-    () =>
-      recettes.reduce(
-        (sum, r) => sum + (r.volumeHebdo ?? 0) * (r.prixVenteHT ?? 0),
-        0,
-      ) * hypothesesBP.semainesOuverture,
-    [recettes, hypothesesBP.semainesOuverture],
-  );
-
-  const margeAlert = margeBruteGlobale < 70 && caHebdo > 0;
-  const foodCostAlert = foodCostGlobal > 35 && caHebdo > 0;
+  const margeAlert = margeBruteGlobale < 70 && totalCA > 0;
 
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6" data-ocid="labo-recettes.page">
-      {/* ── SECTION A — Mix Cible vs Mix Réel ──────────────────────────── */}
+      {/* ── SECTION A — Comparateur Mix Produit ───────────────────────── */}
       <Card
         className="border-border bg-card"
         data-ocid="labo-recettes.mix.section"
       >
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-semibold text-foreground">
-            Section A — Comparateur Mix Cible vs Mix Réel
+            Section A — Comparateur Mix Produit
           </CardTitle>
           <p className="text-sm text-muted-foreground">
-            Comparez votre mix de vente réel (volumes Section B) avec vos
-            objectifs stratégiques.{" "}
-            <span className="text-emerald-600 dark:text-emerald-400 font-medium">
-              Vert
-            </span>{" "}
-            = au‑dessus de la cible,{" "}
-            <span className="text-destructive font-medium">Rouge</span> = en
-            dessous. Le Mix Cible est défini dans le Business Plan.
+            Comparez votre mix de vente réel avec vos objectifs stratégiques.
           </p>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="border-border hover:bg-transparent">
-                  <TableHead className="pl-6 font-semibold text-foreground">
-                    Catégorie
-                  </TableHead>
-                  <TableHead className="text-right font-semibold text-foreground">
-                    Mix Cible (%)
-                  </TableHead>
-                  <TableHead className="text-right pr-6 font-semibold text-foreground">
-                    Mix Réel (%)
-                  </TableHead>
+                <TableRow className="bg-muted/40 hover:bg-muted/40">
+                  <TableHead className="pl-6">Catégorie</TableHead>
+                  <TableHead className="text-right">Mix Cible</TableHead>
+                  <TableHead className="text-right">Mix Réel</TableHead>
+                  <TableHead className="text-right pr-6">Delta</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {categoriesCarte.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={3}
-                      className="text-center py-10 text-muted-foreground text-sm"
-                    >
-                      Aucune catégorie de carte configurée.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  mixRows.map((row, idx) => (
+                {stats.statsParCategorie.map((cat) => {
+                  const delta = cat.mixReelPct - cat.mixCiblePct;
+                  const mixReelColor =
+                    Math.abs(delta) > 5 ? "text-red-600 font-semibold" : "";
+                  const deltaColor =
+                    Math.abs(delta) <= 2
+                      ? "text-green-600"
+                      : Math.abs(delta) <= 5
+                        ? "text-amber-600"
+                        : "text-red-600";
+                  return (
                     <TableRow
-                      key={row.id}
-                      className="border-border hover:bg-muted/40 transition-colors"
-                      data-ocid={`labo-recettes.mix.item.${idx + 1}`}
+                      key={cat.id}
+                      data-ocid={`labo-recettes.mix.${cat.id}.item`}
                     >
-                      <TableCell className="pl-6 font-medium text-foreground">
-                        {row.nom}
+                      <TableCell className="pl-6">{cat.nom}</TableCell>
+                      <TableCell className="text-right">
+                        {cat.mixCiblePct.toFixed(1)}%
                       </TableCell>
-                      <TableCell className="text-right tabular-nums text-muted-foreground">
-                        {formatPct(row.cible)}
+                      <TableCell className={`text-right ${mixReelColor}`}>
+                        {cat.mixReelPct.toFixed(1)}%
                       </TableCell>
-                      <TableCell className="text-right pr-6">
-                        <div className="flex items-center justify-end gap-2">
-                          <span
-                            className={`tabular-nums ${mixReelCn(row.reel, row.cible)}`}
-                          >
-                            {formatPct(row.reel)}
-                          </span>
-                          {mixReelDiff(row.reel, row.cible) && (
-                            <span
-                              className={`text-[11px] tabular-nums ${
-                                row.reel > row.cible
-                                  ? "text-emerald-600 dark:text-emerald-400"
-                                  : "text-destructive"
-                              }`}
-                            >
-                              {mixReelDiff(row.reel, row.cible)}
-                            </span>
-                          )}
-                        </div>
+                      <TableCell className={`text-right pr-6 ${deltaColor}`}>
+                        {delta > 0 ? "+" : ""}
+                        {delta.toFixed(1)}%
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
+                  );
+                })}
               </TableBody>
-              {categoriesCarte.length > 0 && (
-                <TableFooter>
-                  <TableRow className="border-border bg-muted/30 hover:bg-muted/40">
-                    <TableCell className="pl-6 font-semibold text-foreground">
-                      Total
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums font-semibold text-foreground">
-                      {formatPct(totalMixCible)}
-                    </TableCell>
-                    <TableCell className="text-right pr-6 tabular-nums font-semibold text-foreground">
-                      {formatPct(totalMixReel)}
-                    </TableCell>
-                  </TableRow>
-                </TableFooter>
-              )}
             </Table>
           </div>
         </CardContent>
       </Card>
 
-      {/* ── SECTION B — Volumes par Recette ───────────────────────────── */}
+      {/* ── SECTION B — Grille de Saisie ──────────────────────────────── */}
       <Card
         className="border-border bg-card"
         data-ocid="labo-recettes.grille.section"
       >
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-semibold text-foreground">
-            Section B — Volumes par Recette
+            Section B — Grille de Saisie des Volumes
           </CardTitle>
           <p className="text-sm text-muted-foreground">
-            Renseignez le volume estimé par semaine pour chaque recette. Le Mix
-            Réel (Section A) se met à jour en temps réel.
+            Renseignez les volumes estimés par semaine. La marge se calcule
+            automatiquement.
           </p>
         </CardHeader>
         <CardContent className="p-0">
           {recettes.length === 0 ? (
-            <EmptyRecettes />
+            <SectionBEmpty />
           ) : (
             <>
+              {/* ── ACTION 1 & 2: Search / Filter toolbar ───────────────── */}
+              <div className="flex flex-wrap items-center gap-2 px-6 py-3 border-b border-border">
+                {/* Search input */}
+                <Input
+                  type="text"
+                  placeholder="Rechercher une recette…"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-9 w-52"
+                  data-ocid="labo-recettes.search.input"
+                />
+
+                {/* Category filter */}
+                <Select
+                  value={filterCategorie}
+                  onValueChange={setFilterCategorie}
+                >
+                  <SelectTrigger
+                    className="h-9 w-44"
+                    data-ocid="labo-recettes.filter-categorie.select"
+                  >
+                    <SelectValue placeholder="Toutes catégories" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Tout</SelectItem>
+                    {categoriesCarte.map((cat) => (
+                      <SelectItem key={cat.id} value={cat.id}>
+                        {cat.nom}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {/* Reset volumes button — ACTION 2 */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 ml-auto text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => setShowResetDialog(true)}
+                  data-ocid="labo-recettes.reset-volumes.open_modal_button"
+                >
+                  <RotateCcw className="h-4 w-4 mr-1.5" />
+                  Réinitialiser les volumes
+                </Button>
+              </div>
+
+              {/* ── Recipe table ─────────────────────────────────────────── */}
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
@@ -427,229 +404,119 @@ export default function SimulateurCartePage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {recettes.map((recette, idx) => {
-                      const vol = recette.volumeHebdo ?? 0;
-                      const coutMatiere = coutById[recette.id] ?? 0;
-                      const margeUnit = calculerMargeRecette(
-                        recette.prixVenteHT,
-                        coutMatiere,
-                      );
-                      const margeLigne = vol * margeUnit;
-
-                      const categorieNom =
-                        (recette.categorieId &&
-                          categorieNomById[recette.categorieId]) ||
-                        recette.categorie ||
-                        "—";
-
-                      return (
-                        <TableRow
-                          key={recette.id}
-                          className="border-border hover:bg-muted/40 transition-colors"
-                          data-ocid={`labo-recettes.recette.item.${idx + 1}`}
+                    {recettesFiltrees.length === 0 ? (
+                      <TableRow>
+                        <TableCell
+                          colSpan={6}
+                          className="py-10 text-center text-sm text-muted-foreground"
+                          data-ocid="labo-recettes.recettes-filtrees.empty_state"
                         >
-                          <TableCell className="pl-6 font-medium text-foreground">
-                            {recette.nom}
-                          </TableCell>
-                          <TableCell>
-                            <span className="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground">
-                              {categorieNom}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums text-muted-foreground">
-                            {recette.prixVenteHT.toFixed(2).replace(".", ",")} €
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums text-muted-foreground">
-                            {coutMatiere.toFixed(2).replace(".", ",")} €
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <input
-                              type="number"
-                              min={0}
-                              value={recette.volumeHebdo || ""}
-                              onChange={(e) =>
-                                updateRecette(recette.id, {
-                                  volumeHebdo: Number(e.target.value) || 0,
-                                })
-                              }
-                              className="w-24 rounded-md border border-input bg-background px-2 py-1 text-right text-sm font-medium text-foreground tabular-nums focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-colors"
-                              data-ocid={`labo-recettes.volume.input.${idx + 1}`}
-                              aria-label={`Volume semaine — ${recette.nom}`}
-                            />
-                          </TableCell>
-                          <TableCell className="text-right pr-6 tabular-nums font-semibold text-foreground">
-                            {formatEur(margeLigne)}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
+                          Aucune recette ne correspond à votre recherche.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      recettesFiltrees.map((recette, idx) => {
+                        const vol = Number(recette.volumeHebdo) || 0;
+                        const coutMatiere = coutById[recette.id] ?? 0;
+                        const margeUnit = calculerMargeRecette(
+                          recette.prixVenteHT,
+                          coutMatiere,
+                        );
+                        const margeLigne = vol * margeUnit;
+                        const catNom =
+                          categoriesCarte.find(
+                            (c) => c.id === recette.categorieId,
+                          )?.nom ??
+                          recette.categorie ??
+                          "—";
+                        return (
+                          <TableRow
+                            key={recette.id}
+                            className="border-border hover:bg-muted/40 transition-colors"
+                            data-ocid={`labo-recettes.recette.item.${idx + 1}`}
+                          >
+                            {/* ACTION 3: dot + name */}
+                            <TableCell className="pl-6 font-medium text-foreground">
+                              <span className="flex items-center gap-0">
+                                <span
+                                  className={`inline-block w-3 h-3 rounded-full mr-2 flex-shrink-0 ${CATEGORY_DOT_COLORS[recette.categorieId] ?? "bg-gray-300"}`}
+                                />
+                                {recette.nom}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              <span
+                                className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${getCategorieCn(catNom)}`}
+                              >
+                                {catNom}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums text-muted-foreground">
+                              {recette.prixVenteHT.toFixed(2).replace(".", ",")}{" "}
+                              €
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums text-muted-foreground">
+                              {coutMatiere.toFixed(2).replace(".", ",")} €
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {/* ACTION 3: onFocus auto-select */}
+                              <Input
+                                type="number"
+                                min={0}
+                                value={recette.volumeHebdo || ""}
+                                onChange={(e) =>
+                                  updateRecette(recette.id, {
+                                    volumeHebdo: Number(e.target.value) || 0,
+                                  })
+                                }
+                                onFocus={(e) => e.target.select()}
+                                className="w-24 text-right tabular-nums"
+                                data-ocid={`labo-recettes.volume.input.${idx + 1}`}
+                                aria-label={`Volume semaine — ${recette.nom}`}
+                              />
+                            </TableCell>
+                            <TableCell className="text-right pr-6 tabular-nums font-semibold text-foreground">
+                              {formatEur(margeLigne)}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
                   </TableBody>
-                  <TableFooter>
-                    <TableRow className="border-border bg-muted/30 hover:bg-muted/40">
-                      <TableCell
-                        className="pl-6 font-semibold text-foreground"
-                        colSpan={4}
-                      >
-                        Totaux semaine
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums font-semibold text-foreground">
-                        {totalVolumeHebdo.toLocaleString("fr-FR")} couverts
-                      </TableCell>
-                      <TableCell className="text-right pr-6 tabular-nums font-semibold text-foreground">
-                        {formatEur(caHebdo - totalCoutMatiereHebdo)}
-                      </TableCell>
-                    </TableRow>
-                  </TableFooter>
                 </Table>
-              </div>
-
-              {/* Summary mini-cards */}
-              <div className="grid grid-cols-2 gap-3 px-6 py-4 border-t border-border bg-muted/20 sm:grid-cols-2">
-                <div className="rounded-md bg-card border border-border px-4 py-3">
-                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-1">
-                    CA Hebdo estimé
-                  </p>
-                  <p className="text-xl font-bold tabular-nums text-foreground font-display">
-                    {formatEur(caHebdo)}
-                  </p>
-                </div>
-                <div className="rounded-md bg-card border border-border px-4 py-3">
-                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-1">
-                    Couverts / semaine
-                  </p>
-                  <p className="text-xl font-bold tabular-nums text-foreground font-display">
-                    {totalVolumeHebdo.toLocaleString("fr-FR")}
-                  </p>
-                </div>
               </div>
             </>
           )}
         </CardContent>
       </Card>
 
-      {/* ── SECTION C — Moyennes par Catégories ───────────────────────── */}
-      <Card
-        className="border-border bg-card"
-        data-ocid="labo-recettes.categories.section"
-      >
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-semibold text-foreground">
-            Section C — Moyennes par Catégories
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Volume total et Mix Réel calculés par catégorie à partir des volumes
-            saisis en Section B.
-          </p>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-border hover:bg-transparent">
-                  <TableHead className="pl-6 font-semibold text-foreground">
-                    Catégorie
-                  </TableHead>
-                  <TableHead className="text-right font-semibold text-foreground">
-                    Volume Total (couverts/sem.)
-                  </TableHead>
-                  <TableHead className="text-right pr-6 font-semibold text-foreground">
-                    Mix Réel (%)
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {categorieStats.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={3}
-                      className="text-center py-10 text-muted-foreground text-sm"
-                    >
-                      Aucune catégorie configurée.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  categorieStats.map((stat, idx) => (
-                    <TableRow
-                      key={stat.id}
-                      className="border-border hover:bg-muted/40 transition-colors"
-                      data-ocid={`labo-recettes.categories.item.${idx + 1}`}
-                    >
-                      <TableCell className="pl-6 font-medium text-foreground">
-                        {stat.nom}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums text-foreground">
-                        {stat.volumeTotal.toLocaleString("fr-FR")}
-                      </TableCell>
-                      <TableCell className="text-right pr-6">
-                        <span
-                          className={`tabular-nums font-medium ${
-                            stat.volumeTotal === 0
-                              ? "text-muted-foreground"
-                              : "text-foreground"
-                          }`}
-                        >
-                          {formatPct(stat.mixReel)}
-                        </span>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-              {categorieStats.length > 0 && (
-                <TableFooter>
-                  <TableRow className="border-border bg-muted/30 hover:bg-muted/40">
-                    <TableCell className="pl-6 font-semibold text-foreground">
-                      Total
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums font-semibold text-foreground">
-                      {totalVolumeHebdo.toLocaleString("fr-FR")}
-                    </TableCell>
-                    <TableCell className="text-right pr-6 tabular-nums font-semibold text-foreground">
-                      {formatPct(totalVolumeHebdo === 0 ? 0 : 100)}
-                    </TableCell>
-                  </TableRow>
-                </TableFooter>
-              )}
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* ── SECTION D — Bilan KPI ─────────────────────────────────────── */}
+      {/* ── SECTION C — Bilan de la Carte ─────────────────────────────── */}
       <div data-ocid="labo-recettes.bilan.section">
         <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground px-0.5">
-          Section D — Bilan de la Carte · Projection sur{" "}
-          {hypothesesBP.semainesOuverture} sem.
+          Section C — Bilan de la Carte (semaine)
         </p>
         <div className="flex flex-col gap-4 sm:flex-row">
           <KpiCard
             label="CA Hebdomadaire"
-            value={formatEur(caHebdo)}
-            positive={caHebdo > 0}
+            value={formatEur(totalCA)}
+            positive={totalCA > 0}
             data-ocid="labo-recettes.kpi-ca.card"
           />
           <KpiCard
             label="Food Cost Global"
             value={formatPct(foodCostGlobal)}
-            alert={foodCostAlert}
-            positive={foodCostGlobal > 0 && !foodCostAlert}
+            alert={foodCostGlobal > 35 && totalCA > 0}
+            positive={foodCostGlobal > 0 && foodCostGlobal <= 35}
             data-ocid="labo-recettes.kpi-foodcost.card"
           />
           <KpiCard
             label="Marge Brute Globale"
             value={formatPct(margeBruteGlobale)}
             alert={margeAlert}
-            positive={!margeAlert && caHebdo > 0}
+            positive={!margeAlert && totalCA > 0}
             data-ocid="labo-recettes.kpi-marge.card"
           />
-          <KpiCard
-            label="Projection Annuelle"
-            value={formatEur(caAnnuel)}
-            positive={caAnnuel > 0}
-            data-ocid="labo-recettes.kpi-annuel.card"
-          />
         </div>
-
         {margeAlert && (
           <div
             className="mt-3 flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive"
@@ -662,19 +529,35 @@ export default function SimulateurCartePage() {
             </span>
           </div>
         )}
-        {foodCostAlert && (
-          <div
-            className="mt-2 flex items-center gap-2 rounded-md border border-amber-400/30 bg-amber-400/10 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-400"
-            data-ocid="labo-recettes.foodcost-alert.error_state"
-          >
-            <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-            <span>
-              <strong>Food Cost élevé :</strong> Le food cost dépasse 35 %.
-              Vérifiez vos fiches techniques ou réévaluez vos prix de vente.
-            </span>
-          </div>
-        )}
       </div>
+
+      {/* ── ACTION 2: Reset Volumes AlertDialog ───────────────────────── */}
+      <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+        <AlertDialogContent data-ocid="labo-recettes.reset-volumes.dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmer la réinitialisation</AlertDialogTitle>
+            <AlertDialogDescription>
+              Êtes-vous sûr de vouloir remettre tous les volumes à zéro ? Cette
+              action ne peut pas être annulée.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-ocid="labo-recettes.reset-volumes.cancel_button">
+              Annuler
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                resetVolumes();
+                setShowResetDialog(false);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-ocid="labo-recettes.reset-volumes.confirm_button"
+            >
+              Réinitialiser
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

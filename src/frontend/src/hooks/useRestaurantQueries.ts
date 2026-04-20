@@ -3,11 +3,14 @@
  * Sprint 1: empty shells — implementations wired in future sprints when backend is ready.
  */
 
-import type { Ingredient, RecetteFB } from "@/modules/restaurant/types/models";
+import type {
+  IngredientFB,
+  RecetteFB,
+} from "@/modules/restaurant/types/models";
 
 // TODO: replace with real React Query hooks once backend is connected
 
-export function useIngredients(): { data: Ingredient[]; isLoading: boolean } {
+export function useIngredients(): { data: IngredientFB[]; isLoading: boolean } {
   return { data: [], isLoading: false };
 }
 

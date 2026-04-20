@@ -1,6 +1,5 @@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,26 +22,44 @@ import {
   calculerMargeBrute,
   projeterSur5Ans,
 } from "@/utils/math/finance";
-import { AlertTriangle, CheckCircle2, Save, TrendingUp } from "lucide-react";
+import { AlertTriangle, CheckCircle2, TrendingUp } from "lucide-react";
 import { useMemo, useState } from "react";
-import { toast } from "sonner";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface LocalHypotheses {
-  couvertsParJour: number;
-  joursOuvertureAn: number;
+interface Hypotheses {
+  traficHebdo: number;
   semainesOuverture: number;
   tauxCroissanceCA: number;
   tauxInflationCharges: number;
 }
 
-// Local BP row — extends CategorieCarte with BP-specific fields
-interface BpCatRow {
-  id: string; // matches CategorieCarte.id
+// Local-only simulation params (ticket moyen & food cost) keyed by category ID
+interface LocalCatParams {
   ticketMoyen: number;
   foodCost: number;
 }
+
+// ─── Données initiales ────────────────────────────────────────────────────────
+
+const HYPOTHESES_INITIALES: Hypotheses = {
+  traficHebdo: 200,
+  semainesOuverture: 48,
+  tauxCroissanceCA: 5,
+  tauxInflationCharges: 3,
+};
+
+// Default simulation params per store category ID
+const DEFAULT_LOCAL_PARAMS: Record<string, LocalCatParams> = {
+  cat_boissons: { ticketMoyen: 3.5, foodCost: 15 },
+  cat_snacking: { ticketMoyen: 5.5, foodCost: 35 },
+  cat_plats: { ticketMoyen: 12.0, foodCost: 32 },
+  cat_desserts: { ticketMoyen: 4.5, foodCost: 28 },
+  cat_acc: { ticketMoyen: 3.0, foodCost: 25 },
+  cat_formules: { ticketMoyen: 14.0, foodCost: 30 },
+};
+
+const DEFAULT_FALLBACK: LocalCatParams = { ticketMoyen: 5.0, foodCost: 30 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -106,103 +123,61 @@ function NumericInput({
 // ─── Component principal ──────────────────────────────────────────────────────
 
 export default function BusinessPlanPage() {
-  // ── Store access ─────────────────────────────────────────────────────────────
-  const hypothesesBP = useAppStore((s) => s.hypothesesBP);
-  const setHypothesesBP = useAppStore((s) => s.setHypothesesBP);
+  const [hyp, setHyp] = useState<Hypotheses>(HYPOTHESES_INITIALES);
+
+  // Local simulation params (ticketMoyen & foodCost) — keyed by store category ID
+  const [localParams, setLocalParams] =
+    useState<Record<string, LocalCatParams>>(DEFAULT_LOCAL_PARAMS);
+
+  // ── Data from global store ───────────────────────────────────────────────────
   const salaries = useAppStore((s) => s.salaries);
   const fraisFixes = useAppStore((s) => s.fraisFixes);
+  // Action 2 & 3: use store categories as source of truth
   const categoriesCarte = useAppStore((s) => s.categoriesCarte);
-  const updateCategorieCarte = useAppStore((s) => s.updateCategorieCarte);
-
-  // ── Local form state — initialised from store, saved on button click ─────────
-  const [localHyp, setLocalHyp] = useState<LocalHypotheses>(() => ({
-    couvertsParJour: hypothesesBP.couvertsParJour,
-    joursOuvertureAn: hypothesesBP.joursOuvertureAn,
-    semainesOuverture: hypothesesBP.semainesOuverture,
-    tauxCroissanceCA: hypothesesBP.tauxCroissanceAnnuel,
-    tauxInflationCharges: hypothesesBP.tauxInflationAnnuel,
-  }));
-
-  const setLocalHypField = (key: keyof LocalHypotheses, value: number) =>
-    setLocalHyp((h) => ({ ...h, [key]: value }));
-
-  const handleSaveHypotheses = () => {
-    setHypothesesBP({
-      couvertsParJour: localHyp.couvertsParJour,
-      joursOuvertureAn: localHyp.joursOuvertureAn,
-      semainesOuverture: localHyp.semainesOuverture,
-      tauxCroissanceAnnuel: localHyp.tauxCroissanceCA,
-      tauxInflationAnnuel: localHyp.tauxInflationCharges,
-    });
-    toast.success("Hypothèses enregistrées dans le store global.");
-  };
-
-  // Derive weekly traffic from daily covers × opening days / 52
-  const traficHebdo = Math.round(
-    (localHyp.couvertsParJour * localHyp.joursOuvertureAn) /
-      Math.max(localHyp.semainesOuverture, 1),
-  );
+  const updateCategorie = useAppStore((s) => s.updateCategorie);
 
   const totalMasseSalarialeAn = selectTotalMasseSalarialeAnnuelle(salaries);
   const totalFraisFixesAn = selectTotalFraisFixesAnnuels(fraisFixes);
 
-  // ── Local BP rows for ticket moyen & food cost (BP-specific data) ─────────
-  // Initialised once from categoriesCarte ids; keyed by id for O(1) access.
-  const [bpRows, setBpRows] = useState<BpCatRow[]>(() =>
-    categoriesCarte.map((c) => ({
-      id: c.id,
-      ticketMoyen: 5.0,
-      foodCost: 30,
-    })),
-  );
-
-  // Keep bpRows in sync when new categories are added to the store
-  const syncedBpRows: BpCatRow[] = categoriesCarte.map((c) => {
-    const existing = bpRows.find((r) => r.id === c.id);
-    return existing ?? { id: c.id, ticketMoyen: 5.0, foodCost: 30 };
-  });
-
-  const setBpRowField = (
-    id: string,
-    key: keyof Omit<BpCatRow, "id">,
-    value: number,
-  ) =>
-    setBpRows((prev) => {
-      const exists = prev.find((r) => r.id === id);
-      if (exists) {
-        return prev.map((r) => (r.id === id ? { ...r, [key]: value } : r));
-      }
-      return [...prev, { id, ticketMoyen: 5.0, foodCost: 30, [key]: value }];
-    });
-
-  // ── Build a combined view for calculations (matching old CategorieRow shape) ─
-  const categories = useMemo(
-    () =>
-      categoriesCarte.map((cat, i) => {
-        const bp = syncedBpRows[i] ?? { ticketMoyen: 5.0, foodCost: 30 };
-        return {
-          id: i + 1, // numeric id used by calculerCA/calculerMargeBrute
-          categorie: cat.nom,
-          mix: cat.mixCiblePct,
-          ticketMoyen: bp.ticketMoyen,
-          foodCost: bp.foodCost,
-        };
-      }),
-    [categoriesCarte, syncedBpRows],
-  );
-
   const totalMix = categoriesCarte.reduce((s, c) => s + c.mixCiblePct, 0);
   const mixValide = Math.round(totalMix) === 100;
 
+  const setHypField = (key: keyof Hypotheses, value: number) =>
+    setHyp((h) => ({ ...h, [key]: value }));
+
+  const setLocalParam = (
+    catId: string,
+    key: keyof LocalCatParams,
+    value: number,
+  ) =>
+    setLocalParams((prev) => ({
+      ...prev,
+      [catId]: { ...(prev[catId] ?? DEFAULT_FALLBACK), [key]: value },
+    }));
+
+  // Build the categories array that finance.ts functions expect
+  const categoriesForCalc = useMemo(
+    () =>
+      categoriesCarte.map((cat) => {
+        const params = localParams[cat.id] ?? DEFAULT_FALLBACK;
+        return {
+          mix: cat.mixCiblePct,
+          ticketMoyen: params.ticketMoyen,
+          foodCost: params.foodCost,
+        };
+      }),
+    [categoriesCarte, localParams],
+  );
+
   // ── Calcul du CR 5 ans ───────────────────────────────────────────────────────
   const compteResultat = useMemo(() => {
-    const tauxCA = localHyp.tauxCroissanceCA / 100;
-    const tauxInflation = localHyp.tauxInflationCharges / 100;
+    const tauxCA = hyp.tauxCroissanceCA / 100;
+    const tauxInflation = hyp.tauxInflationCharges / 100;
 
     const caAn1 = calculerCA(
-      traficHebdo,
-      localHyp.semainesOuverture,
-      categories,
+      hyp.traficHebdo,
+      hyp.semainesOuverture,
+      categoriesForCalc,
     );
     const casProjectes = projeterSur5Ans(caAn1, tauxCA);
     const chargesProjectees = projeterSur5Ans(totalFraisFixesAn, tauxInflation);
@@ -213,20 +188,17 @@ export default function BusinessPlanPage() {
 
     return Array.from({ length: 5 }, (_, i) => {
       const ca = casProjectes[i];
-      const { margeBrute, coutMatiere } = calculerMargeBrute(ca, categories);
+      const { margeBrute, coutMatiere } = calculerMargeBrute(
+        ca,
+        categoriesForCalc,
+      );
       const charges = chargesProjectees[i];
       const salaires = salairesProjectes[i];
       const ebe = calculerEBE(margeBrute, charges, salaires);
       const pctEbe = ca > 0 ? (ebe / ca) * 100 : 0;
       return { ca, coutMatiere, margeBrute, charges, salaires, ebe, pctEbe };
     });
-  }, [
-    localHyp,
-    traficHebdo,
-    categories,
-    totalFraisFixesAn,
-    totalMasseSalarialeAn,
-  ]);
+  }, [hyp, categoriesForCalc, totalFraisFixesAn, totalMasseSalarialeAn]);
 
   const ANNEES = ["Année 1", "Année 2", "Année 3", "Année 4", "Année 5"];
 
@@ -283,37 +255,29 @@ export default function BusinessPlanPage() {
             Hypothèses Globales
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3 lg:grid-cols-5">
+        <CardContent>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
             <NumericInput
-              id="couvertsParJour"
-              label="Couverts/jour"
-              value={localHyp.couvertsParJour}
-              onChange={(v) => setLocalHypField("couvertsParJour", v)}
+              id="trafic"
+              label="Trafic (clients/semaine)"
+              value={hyp.traficHebdo}
+              onChange={(v) => setHypField("traficHebdo", v)}
               min={1}
-              ocid="business-plan.couvertsparjour.input"
-            />
-            <NumericInput
-              id="joursOuvertureAn"
-              label="Jours/an"
-              value={localHyp.joursOuvertureAn}
-              onChange={(v) => setLocalHypField("joursOuvertureAn", v)}
-              min={1}
-              ocid="business-plan.joursouverturean.input"
+              ocid="business-plan.trafic.input"
             />
             <NumericInput
               id="semaines"
-              label="Semaines/an"
-              value={localHyp.semainesOuverture}
-              onChange={(v) => setLocalHypField("semainesOuverture", v)}
+              label="Semaines d'ouverture/an"
+              value={hyp.semainesOuverture}
+              onChange={(v) => setHypField("semainesOuverture", v)}
               min={1}
               ocid="business-plan.semaines.input"
             />
             <NumericInput
               id="croissance"
               label="Croissance CA/an"
-              value={localHyp.tauxCroissanceCA}
-              onChange={(v) => setLocalHypField("tauxCroissanceCA", v)}
+              value={hyp.tauxCroissanceCA}
+              onChange={(v) => setHypField("tauxCroissanceCA", v)}
               min={-50}
               step={0.5}
               suffix="%"
@@ -322,30 +286,13 @@ export default function BusinessPlanPage() {
             <NumericInput
               id="inflation"
               label="Inflation charges/an"
-              value={localHyp.tauxInflationCharges}
-              onChange={(v) => setLocalHypField("tauxInflationCharges", v)}
+              value={hyp.tauxInflationCharges}
+              onChange={(v) => setHypField("tauxInflationCharges", v)}
               min={-20}
               step={0.5}
               suffix="%"
               ocid="business-plan.inflation.input"
             />
-          </div>
-          <div className="flex items-center gap-3 pt-1 border-t border-border">
-            <Button
-              onClick={handleSaveHypotheses}
-              size="sm"
-              className="gap-2"
-              data-ocid="business-plan.save_hypotheses.button"
-            >
-              <Save className="h-4 w-4" />
-              Enregistrer les Hypothèses
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              Trafic hebdomadaire calculé :{" "}
-              <strong className="text-foreground tabular-nums">
-                {traficHebdo} clients/semaine
-              </strong>
-            </p>
           </div>
         </CardContent>
       </Card>
@@ -412,11 +359,10 @@ export default function BusinessPlanPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
+                {/* Action 2 & 3: loop over store categoriesCarte — no local hardcoded list */}
                 {categoriesCarte.map((cat, i) => {
-                  const bp = syncedBpRows.find((r) => r.id === cat.id) ?? {
-                    ticketMoyen: 5.0,
-                    foodCost: 30,
-                  };
+                  const params = localParams[cat.id] ?? DEFAULT_FALLBACK;
+                  const margeResidue = 100 - params.foodCost;
                   return (
                     <TableRow
                       key={cat.id}
@@ -432,7 +378,8 @@ export default function BusinessPlanPage() {
                           max={100}
                           value={cat.mixCiblePct}
                           onChange={(e) =>
-                            updateCategorieCarte(cat.id, {
+                            // Action 2: update store so Laboratoire Section A reflects change instantly
+                            updateCategorie(cat.id, {
                               mixCiblePct: Number(e.target.value),
                             })
                           }
@@ -445,9 +392,9 @@ export default function BusinessPlanPage() {
                           type="number"
                           min={0}
                           step={0.1}
-                          value={bp.ticketMoyen}
+                          value={params.ticketMoyen}
                           onChange={(e) =>
-                            setBpRowField(
+                            setLocalParam(
                               cat.id,
                               "ticketMoyen",
                               Number(e.target.value),
@@ -462,9 +409,9 @@ export default function BusinessPlanPage() {
                           type="number"
                           min={0}
                           max={100}
-                          value={bp.foodCost}
+                          value={params.foodCost}
                           onChange={(e) =>
-                            setBpRowField(
+                            setLocalParam(
                               cat.id,
                               "foodCost",
                               Number(e.target.value),
@@ -477,14 +424,14 @@ export default function BusinessPlanPage() {
                       <TableCell className="pr-6 text-right tabular-nums">
                         <span
                           className={
-                            100 - bp.foodCost >= 65
+                            margeResidue >= 70
                               ? "font-semibold text-emerald-600"
-                              : 100 - bp.foodCost >= 70
+                              : margeResidue >= 65
                                 ? "text-foreground"
                                 : "text-amber-600"
                           }
                         >
-                          {(100 - bp.foodCost).toFixed(0)} %
+                          {margeResidue.toFixed(0)} %
                         </span>
                       </TableCell>
                     </TableRow>

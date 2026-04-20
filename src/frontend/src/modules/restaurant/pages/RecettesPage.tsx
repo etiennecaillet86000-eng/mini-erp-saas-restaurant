@@ -105,6 +105,7 @@ interface KpiBlockProps {
   value: string;
   valueClass?: string;
   sub?: string;
+  "data-ocid"?: string;
 }
 
 function KpiBlock({
@@ -112,9 +113,13 @@ function KpiBlock({
   value,
   valueClass = "text-foreground",
   sub,
+  "data-ocid": ocid,
 }: KpiBlockProps) {
   return (
-    <div className="flex-1 rounded-lg border border-border bg-muted/30 px-5 py-4">
+    <div
+      className="flex-1 rounded-lg border border-border bg-muted/30 px-5 py-4"
+      data-ocid={ocid}
+    >
       <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
         {label}
       </p>
@@ -247,10 +252,6 @@ export default function RecettesPage() {
   // Selected ingredient to add
   const [selectedIngId, setSelectedIngId] = useState<string>("");
   const [selectedQte, setSelectedQte] = useState<string>("1");
-  const [ingredientSearch, setIngredientSearch] = useState<string>("");
-
-  // Search in saved recipes list
-  const [recipeSearch, setRecipeSearch] = useState<string>("");
 
   // ── Form helpers ────────────────────────────────────────────────────────
 
@@ -264,14 +265,13 @@ export default function RecettesPage() {
     setForm(INITIAL_FORM);
     setSelectedIngId("");
     setSelectedQte("1");
-    setIngredientSearch("");
   }, []);
 
   const loadRecetteIntoForm = useCallback((r: RecetteFB) => {
     setForm({
       id: r.id,
       nom: r.nom,
-      categorie: r.categorie,
+      categorie: r.categorie ?? "",
       prixVenteHT: String(r.prixVenteHT),
       tva: String(r.tva),
       lignes: [...r.ingredients],
@@ -310,7 +310,6 @@ export default function RecettesPage() {
     }
     setSelectedIngId("");
     setSelectedQte("1");
-    setIngredientSearch("");
   }, [selectedIngId, selectedQte, form.lignes]);
 
   const handleUpdateLigne = useCallback(
@@ -340,7 +339,9 @@ export default function RecettesPage() {
       id: form.id ?? "",
       nom: form.nom,
       categorie: (form.categorie || "Plats chauds") as CategorieRecette,
+      categorieId: form.categorie || "cat_plats",
       prixVenteHT: Number.parseFloat(form.prixVenteHT) || 0,
+      volumeHebdo: 0,
       tva: Number.parseFloat(form.tva) || 0,
       ingredients: form.lignes,
     };
@@ -373,7 +374,9 @@ export default function RecettesPage() {
         id: generateId(),
         nom: form.nom.trim(),
         categorie: (form.categorie || "Plats chauds") as CategorieRecette,
+        categorieId: form.categorie || "cat_plats",
         prixVenteHT: Number.parseFloat(form.prixVenteHT) || 0,
+        volumeHebdo: 0,
         tva: Number.parseFloat(form.tva) || 0,
         ingredients: form.lignes,
       });
@@ -387,11 +390,6 @@ export default function RecettesPage() {
   // ── Available ingredients (not yet in recipe) for the add dropdown ──────
   const availableIngredients = ingredients.filter(
     (ing) => !form.lignes.some((l) => l.ingredientId === ing.id),
-  );
-
-  // Filtered by search term (case-insensitive)
-  const filteredIngredients = availableIngredients.filter((ing) =>
-    ing.nom.toLowerCase().includes(ingredientSearch.toLowerCase()),
   );
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -543,14 +541,6 @@ export default function RecettesPage() {
           >
             <div className="flex-1 space-y-1.5">
               <Label className="text-sm font-medium">Ingrédient</Label>
-              <Input
-                type="search"
-                placeholder="Rechercher un ingrédient..."
-                value={ingredientSearch}
-                onChange={(e) => setIngredientSearch(e.target.value)}
-                className="mb-2"
-                data-ocid="recettes.ingredient-search.input"
-              />
               <Select
                 value={selectedIngId}
                 onValueChange={setSelectedIngId}
@@ -569,7 +559,7 @@ export default function RecettesPage() {
                   />
                 </SelectTrigger>
                 <SelectContent>
-                  {filteredIngredients.map((ing) => (
+                  {availableIngredients.map((ing) => (
                     <SelectItem key={ing.id} value={ing.id}>
                       {ing.nom}
                       <span className="ml-2 text-muted-foreground text-xs">
@@ -577,12 +567,10 @@ export default function RecettesPage() {
                       </span>
                     </SelectItem>
                   ))}
-                  {filteredIngredients.length === 0 &&
+                  {availableIngredients.length === 0 &&
                     ingredients.length > 0 && (
                       <div className="px-3 py-2 text-sm text-muted-foreground">
-                        {ingredientSearch
-                          ? "Aucun ingrédient ne correspond à la recherche."
-                          : "Tous les ingrédients sont déjà ajoutés."}
+                        Tous les ingrédients sont déjà ajoutés.
                       </div>
                     )}
                 </SelectContent>
@@ -807,52 +795,18 @@ export default function RecettesPage() {
             </div>
           </div>
         ) : (
-          <>
-            {/* Search bar */}
-            <Input
-              type="search"
-              placeholder="Rechercher une recette..."
-              value={recipeSearch}
-              onChange={(e) => setRecipeSearch(e.target.value)}
-              className="mb-4"
-              data-ocid="recettes.search.input"
-              aria-label="Rechercher dans les fiches enregistrées"
-            />
-
-            {/* Filtered list */}
-            {recettes.filter((r) =>
-              r.nom.toLowerCase().includes(recipeSearch.toLowerCase()),
-            ).length === 0 ? (
-              <div
-                className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/20 py-10 text-center px-6"
-                data-ocid="recettes.search.empty_state"
-              >
-                <p className="text-sm font-medium text-foreground">
-                  Aucun résultat
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Aucune fiche ne correspond à «&nbsp;{recipeSearch}&nbsp;».
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2" data-ocid="recettes.list">
-                {recettes
-                  .filter((r) =>
-                    r.nom.toLowerCase().includes(recipeSearch.toLowerCase()),
-                  )
-                  .map((r, idx) => (
-                    <RecetteCard
-                      key={r.id}
-                      recette={r}
-                      ingredients={ingredients}
-                      index={idx}
-                      onEdit={loadRecetteIntoForm}
-                      onDelete={deleteRecette}
-                    />
-                  ))}
-              </div>
-            )}
-          </>
+          <div className="space-y-2" data-ocid="recettes.list">
+            {recettes.map((r, idx) => (
+              <RecetteCard
+                key={r.id}
+                recette={r}
+                ingredients={ingredients}
+                index={idx}
+                onEdit={loadRecetteIntoForm}
+                onDelete={deleteRecette}
+              />
+            ))}
+          </div>
         )}
       </div>
     </div>

@@ -1,19 +1,3 @@
-// ─── Ingredient (generic) ────────────────────────────────────────────────────
-export interface Ingredient {
-  id: string;
-  name: string;
-  unitCost: number;
-  unit: string; // e.g. "kg", "L", "unit"
-  supplier?: string;
-}
-
-// ─── RecipeIngredient (generic) ──────────────────────────────────────────────
-export interface RecipeIngredient {
-  ingredientId: string;
-  quantity: number;
-  unit: string;
-}
-
 // ─── IngredientFB — F&B ingrédient d'achat ───────────────────────────────────
 
 export type FamilleIngredient =
@@ -41,7 +25,7 @@ export interface RecetteIngredient {
   quantiteNette: number; // quantité nette utilisée (en unité de référence)
 }
 
-// ─── CategorieRecette — Mix Produit du Business Plan ─────────────────────────
+// ─── CategorieRecette — union legacy (conservée pour rétrocompatibilité) ─────
 export type CategorieRecette =
   | "Boissons"
   | "Snacking"
@@ -50,9 +34,7 @@ export type CategorieRecette =
   | "Accompagnements"
   | "Formules";
 
-// ─── CategorieCarte — Catégorie dynamique du simulateur ──────────────────────
-/** Catégorie de la carte, configurable dynamiquement dans le store.
- *  mixCiblePct : part cible (%) dans le mix produit. La somme doit faire 100. */
+// ─── CategorieCarte — catégorie dynamique du Business Plan ───────────────────
 export interface CategorieCarte {
   id: string;
   nom: string;
@@ -63,13 +45,10 @@ export interface CategorieCarte {
 export interface RecetteFB {
   id: string;
   nom: string;
-  /** @deprecated — utiliser categorieId à la place (maintenu pour compat descendante) */
-  categorie: CategorieRecette;
-  /** Référence vers l'id d'une CategorieCarte dynamique (optionnel pour compat) */
-  categorieId?: string;
+  categorie?: CategorieRecette; // legacy — kept for backward compatibility
+  categorieId: string; // dynamic category reference
   prixVenteHT: number;
+  volumeHebdo: number; // volume de vente hebdomadaire (couverts/semaine)
   ingredients: RecetteIngredient[];
   tva: number; // % ex: 10 pour 10 %
-  /** Volume estimé vendu par semaine — partagé entre Laboratoire et BP Réel */
-  volumeHebdo?: number;
 }

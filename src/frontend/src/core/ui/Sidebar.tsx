@@ -1,4 +1,3 @@
-import type { Page } from "@/App";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
@@ -10,14 +9,14 @@ import {
   FlaskConical,
   PackageOpen,
   Settings,
-  TrendingDown,
   TrendingUp,
   Users,
   UtensilsCrossed,
 } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 interface NavItem {
-  id: Page;
+  path: string;
   label: string;
   icon: React.ReactNode;
 }
@@ -32,12 +31,12 @@ const NAV_SECTIONS: NavSection[] = [
     title: "Opérations",
     items: [
       {
-        id: "quotidien",
+        path: "/quotidien",
         label: "Quotidien",
         icon: <CalendarDays className="h-4 w-4" />,
       },
       {
-        id: "cloture-journee",
+        path: "/cloture-journee",
         label: "Clôture Journée",
         icon: <ClipboardList className="h-4 w-4" />,
       },
@@ -47,17 +46,17 @@ const NAV_SECTIONS: NavSection[] = [
     title: "F&B",
     items: [
       {
-        id: "simulateur-carte",
+        path: "/laboratoire",
         label: "Laboratoire Recettes",
         icon: <UtensilsCrossed className="h-4 w-4" />,
       },
       {
-        id: "ingredients",
+        path: "/ingredients",
         label: "Ingrédients",
         icon: <PackageOpen className="h-4 w-4" />,
       },
       {
-        id: "recettes",
+        path: "/recettes",
         label: "Fiches Techniques",
         icon: <FlaskConical className="h-4 w-4" />,
       },
@@ -67,14 +66,14 @@ const NAV_SECTIONS: NavSection[] = [
     title: "Stratégie",
     items: [
       {
-        id: "business-plan",
-        label: "BP Stratégique",
+        path: "/business-plan",
+        label: "Business Plan",
         icon: <TrendingUp className="h-4 w-4" />,
       },
       {
-        id: "business-plan-reel",
-        label: "BP Réel (Bottom-Up)",
-        icon: <TrendingDown className="h-4 w-4" />,
+        path: "/business-plan-reel",
+        label: "BP Réel",
+        icon: <TrendingUp className="h-4 w-4" />,
       },
     ],
   },
@@ -82,7 +81,7 @@ const NAV_SECTIONS: NavSection[] = [
     title: "Ressources Humaines",
     items: [
       {
-        id: "salaries",
+        path: "/salaries",
         label: "Salariés",
         icon: <Users className="h-4 w-4" />,
       },
@@ -92,7 +91,7 @@ const NAV_SECTIONS: NavSection[] = [
     title: "Finance",
     items: [
       {
-        id: "frais-fixes",
+        path: "/frais-fixes",
         label: "Charges Fixes",
         icon: <CreditCard className="h-4 w-4" />,
       },
@@ -102,7 +101,7 @@ const NAV_SECTIONS: NavSection[] = [
     title: "Configuration",
     items: [
       {
-        id: "parametres",
+        path: "/parametres",
         label: "Paramètres",
         icon: <Settings className="h-4 w-4" />,
       },
@@ -111,20 +110,16 @@ const NAV_SECTIONS: NavSection[] = [
 ];
 
 interface SidebarProps {
-  currentPage: Page;
-  onNavigate: (page: Page) => void;
   isOpen: boolean;
   onClose: () => void;
 }
 
-export default function Sidebar({
-  currentPage,
-  onNavigate,
-  isOpen,
-  onClose,
-}: SidebarProps) {
-  const handleNavigate = (page: Page) => {
-    onNavigate(page);
+export default function Sidebar({ isOpen, onClose }: SidebarProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const handleNavigate = (path: string) => {
+    navigate(path);
     onClose();
   };
 
@@ -175,10 +170,13 @@ export default function Sidebar({
               </p>
               <div className="space-y-0.5">
                 {section.items.map((item) => {
-                  const isActive = currentPage === item.id;
+                  const isActive = location.pathname === item.path;
+                  const ocidKey = item.path
+                    .replace(/^\//, "")
+                    .replace(/-/g, "_");
                   return (
                     <Button
-                      key={item.id}
+                      key={item.path}
                       variant="ghost"
                       className={cn(
                         "w-full justify-start gap-3 px-3 py-2 h-10 font-medium text-sm transition-smooth rounded-md",
@@ -186,8 +184,8 @@ export default function Sidebar({
                           ? "bg-sidebar-accent text-sidebar-accent-foreground border-l-2 border-sidebar-primary pl-[10px]"
                           : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
                       )}
-                      onClick={() => handleNavigate(item.id)}
-                      data-ocid={`nav.${item.id}.link`}
+                      onClick={() => handleNavigate(item.path)}
+                      data-ocid={`nav.${ocidKey}.link`}
                       aria-current={isActive ? "page" : undefined}
                     >
                       {item.icon}

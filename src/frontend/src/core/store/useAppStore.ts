@@ -15,8 +15,6 @@ export interface HypothesesBP {
   tauxCroissanceAnnuel: number;
   tauxInflationAnnuel: number;
   joursOuvertureAn: number;
-  /** Ticket moyen cible HT (€) — utilisé pour le calcul du CA Cible Top-Down */
-  ticketMoyenCible: number;
 }
 
 interface AppStore {
@@ -43,10 +41,13 @@ interface AppStore {
   updateRecette: (id: string, updates: Partial<RecetteFB>) => void;
   deleteRecette: (id: string) => void;
 
-  // Catégories de carte (dynamiques)
-  addCategorieCarte: (cat: Omit<CategorieCarte, "id">) => void;
-  updateCategorieCarte: (id: string, updates: Partial<CategorieCarte>) => void;
-  deleteCategorieCarte: (id: string) => void;
+  // Catégories Carte
+  updateCategorie: (id: string, updates: Partial<CategorieCarte>) => void;
+  addCategorie: (categorie: CategorieCarte) => void;
+  deleteCategorie: (id: string) => void;
+
+  // Bulk actions
+  resetVolumes: () => void;
 }
 
 // ─── Default data (mirrors Sprint 2 mock values) ─────────────────────────────
@@ -124,16 +125,15 @@ const DEFAULT_HYPOTHESES_BP: HypothesesBP = {
   tauxCroissanceAnnuel: 5,
   tauxInflationAnnuel: 2,
   joursOuvertureAn: 300,
-  ticketMoyenCible: 25,
 };
 
 const DEFAULT_CATEGORIES_CARTE: CategorieCarte[] = [
-  { id: "cat-boissons", nom: "Boissons", mixCiblePct: 20 },
-  { id: "cat-snacking", nom: "Snacking", mixCiblePct: 30 },
-  { id: "cat-plats-chauds", nom: "Plats chauds", mixCiblePct: 25 },
-  { id: "cat-desserts", nom: "Desserts", mixCiblePct: 10 },
-  { id: "cat-accompagnements", nom: "Accompagnements", mixCiblePct: 10 },
-  { id: "cat-formules", nom: "Formules", mixCiblePct: 5 },
+  { id: "cat_boissons", nom: "Boissons", mixCiblePct: 15 },
+  { id: "cat_snacking", nom: "Snacking", mixCiblePct: 15 },
+  { id: "cat_plats", nom: "Plats chauds", mixCiblePct: 30 },
+  { id: "cat_desserts", nom: "Desserts", mixCiblePct: 20 },
+  { id: "cat_acc", nom: "Accompagnements", mixCiblePct: 10 },
+  { id: "cat_formules", nom: "Formules", mixCiblePct: 10 },
 ];
 
 // ─── Selectors (pure helpers — use outside the store) ────────────────────────
@@ -195,43 +195,26 @@ export const useAppStore = create<AppStore>()(
           recettes: state.recettes.filter((r) => r.id !== id),
         })),
 
-      addCategorieCarte: (cat) =>
-        set((state) => ({
-          categoriesCarte: [
-            ...state.categoriesCarte,
-            { ...cat, id: Date.now().toString() },
-          ],
-        })),
-      updateCategorieCarte: (id, updates) =>
+      updateCategorie: (id, updates) =>
         set((state) => ({
           categoriesCarte: state.categoriesCarte.map((c) =>
             c.id === id ? { ...c, ...updates } : c,
           ),
         })),
-      deleteCategorieCarte: (id) =>
+      addCategorie: (categorie) =>
+        set((state) => ({
+          categoriesCarte: [...state.categoriesCarte, categorie],
+        })),
+      deleteCategorie: (id) =>
         set((state) => ({
           categoriesCarte: state.categoriesCarte.filter((c) => c.id !== id),
         })),
+
+      resetVolumes: () =>
+        set((state) => ({
+          recettes: state.recettes.map((r) => ({ ...r, volumeHebdo: 0 })),
+        })),
     }),
-    {
-      name: "mini-erp-store",
-      // Merge strategy: if categoriesCarte is missing from persisted state
-      // (old localStorage without this field), fall back to the default list.
-      merge: (persistedState, currentState) => {
-        const persisted = persistedState as Partial<AppStore>;
-        return {
-          ...currentState,
-          ...persisted,
-          hypothesesBP: {
-            ...DEFAULT_HYPOTHESES_BP,
-            ...(persisted.hypothesesBP ?? {}),
-          },
-          categoriesCarte:
-            persisted.categoriesCarte && persisted.categoriesCarte.length > 0
-              ? persisted.categoriesCarte
-              : DEFAULT_CATEGORIES_CARTE,
-        };
-      },
-    },
+    { name: "mini-erp-store" },
   ),
 );
