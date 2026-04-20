@@ -1,5 +1,6 @@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,66 +23,26 @@ import {
   calculerMargeBrute,
   projeterSur5Ans,
 } from "@/utils/math/finance";
-import { AlertTriangle, CheckCircle2, TrendingUp } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Save, TrendingUp } from "lucide-react";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface Hypotheses {
-  traficHebdo: number;
+interface LocalHypotheses {
+  couvertsParJour: number;
+  joursOuvertureAn: number;
   semainesOuverture: number;
   tauxCroissanceCA: number;
   tauxInflationCharges: number;
 }
 
-interface CategorieRow {
-  id: number;
-  categorie: string;
-  mix: number;
+// Local BP row — extends CategorieCarte with BP-specific fields
+interface BpCatRow {
+  id: string; // matches CategorieCarte.id
   ticketMoyen: number;
   foodCost: number;
 }
-
-// ─── Données initiales ────────────────────────────────────────────────────────
-
-const HYPOTHESES_INITIALES: Hypotheses = {
-  traficHebdo: 200,
-  semainesOuverture: 48,
-  tauxCroissanceCA: 5,
-  tauxInflationCharges: 3,
-};
-
-const CATEGORIES_INITIALES: CategorieRow[] = [
-  {
-    id: 1,
-    categorie: "Boissons chaudes",
-    mix: 25,
-    ticketMoyen: 3.5,
-    foodCost: 15,
-  },
-  {
-    id: 2,
-    categorie: "Boissons froides",
-    mix: 20,
-    ticketMoyen: 4.0,
-    foodCost: 20,
-  },
-  {
-    id: 3,
-    categorie: "Snacking / Viennoiseries",
-    mix: 30,
-    ticketMoyen: 5.5,
-    foodCost: 35,
-  },
-  {
-    id: 4,
-    categorie: "Plats chauds",
-    mix: 15,
-    ticketMoyen: 12.0,
-    foodCost: 32,
-  },
-  { id: 5, categorie: "Desserts", mix: 10, ticketMoyen: 4.5, foodCost: 28 },
-];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -145,40 +106,102 @@ function NumericInput({
 // ─── Component principal ──────────────────────────────────────────────────────
 
 export default function BusinessPlanPage() {
-  const [hyp, setHyp] = useState<Hypotheses>(HYPOTHESES_INITIALES);
-  const [categories, setCategories] =
-    useState<CategorieRow[]>(CATEGORIES_INITIALES);
-
-  // ── Data from global store ───────────────────────────────────────────────────
+  // ── Store access ─────────────────────────────────────────────────────────────
+  const hypothesesBP = useAppStore((s) => s.hypothesesBP);
+  const setHypothesesBP = useAppStore((s) => s.setHypothesesBP);
   const salaries = useAppStore((s) => s.salaries);
   const fraisFixes = useAppStore((s) => s.fraisFixes);
+  const categoriesCarte = useAppStore((s) => s.categoriesCarte);
+  const updateCategorieCarte = useAppStore((s) => s.updateCategorieCarte);
+
+  // ── Local form state — initialised from store, saved on button click ─────────
+  const [localHyp, setLocalHyp] = useState<LocalHypotheses>(() => ({
+    couvertsParJour: hypothesesBP.couvertsParJour,
+    joursOuvertureAn: hypothesesBP.joursOuvertureAn,
+    semainesOuverture: hypothesesBP.semainesOuverture,
+    tauxCroissanceCA: hypothesesBP.tauxCroissanceAnnuel,
+    tauxInflationCharges: hypothesesBP.tauxInflationAnnuel,
+  }));
+
+  const setLocalHypField = (key: keyof LocalHypotheses, value: number) =>
+    setLocalHyp((h) => ({ ...h, [key]: value }));
+
+  const handleSaveHypotheses = () => {
+    setHypothesesBP({
+      couvertsParJour: localHyp.couvertsParJour,
+      joursOuvertureAn: localHyp.joursOuvertureAn,
+      semainesOuverture: localHyp.semainesOuverture,
+      tauxCroissanceAnnuel: localHyp.tauxCroissanceCA,
+      tauxInflationAnnuel: localHyp.tauxInflationCharges,
+    });
+    toast.success("Hypothèses enregistrées dans le store global.");
+  };
+
+  // Derive weekly traffic from daily covers × opening days / 52
+  const traficHebdo = Math.round(
+    (localHyp.couvertsParJour * localHyp.joursOuvertureAn) /
+      Math.max(localHyp.semainesOuverture, 1),
+  );
 
   const totalMasseSalarialeAn = selectTotalMasseSalarialeAnnuelle(salaries);
   const totalFraisFixesAn = selectTotalFraisFixesAnnuels(fraisFixes);
 
-  const totalMix = categories.reduce((s, c) => s + c.mix, 0);
-  const mixValide = totalMix === 100;
+  // ── Local BP rows for ticket moyen & food cost (BP-specific data) ─────────
+  // Initialised once from categoriesCarte ids; keyed by id for O(1) access.
+  const [bpRows, setBpRows] = useState<BpCatRow[]>(() =>
+    categoriesCarte.map((c) => ({
+      id: c.id,
+      ticketMoyen: 5.0,
+      foodCost: 30,
+    })),
+  );
 
-  const setHypField = (key: keyof Hypotheses, value: number) =>
-    setHyp((h) => ({ ...h, [key]: value }));
+  // Keep bpRows in sync when new categories are added to the store
+  const syncedBpRows: BpCatRow[] = categoriesCarte.map((c) => {
+    const existing = bpRows.find((r) => r.id === c.id);
+    return existing ?? { id: c.id, ticketMoyen: 5.0, foodCost: 30 };
+  });
 
-  const setCatField = (
-    id: number,
-    key: keyof Omit<CategorieRow, "id" | "categorie">,
+  const setBpRowField = (
+    id: string,
+    key: keyof Omit<BpCatRow, "id">,
     value: number,
   ) =>
-    setCategories((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, [key]: value } : c)),
-    );
+    setBpRows((prev) => {
+      const exists = prev.find((r) => r.id === id);
+      if (exists) {
+        return prev.map((r) => (r.id === id ? { ...r, [key]: value } : r));
+      }
+      return [...prev, { id, ticketMoyen: 5.0, foodCost: 30, [key]: value }];
+    });
+
+  // ── Build a combined view for calculations (matching old CategorieRow shape) ─
+  const categories = useMemo(
+    () =>
+      categoriesCarte.map((cat, i) => {
+        const bp = syncedBpRows[i] ?? { ticketMoyen: 5.0, foodCost: 30 };
+        return {
+          id: i + 1, // numeric id used by calculerCA/calculerMargeBrute
+          categorie: cat.nom,
+          mix: cat.mixCiblePct,
+          ticketMoyen: bp.ticketMoyen,
+          foodCost: bp.foodCost,
+        };
+      }),
+    [categoriesCarte, syncedBpRows],
+  );
+
+  const totalMix = categoriesCarte.reduce((s, c) => s + c.mixCiblePct, 0);
+  const mixValide = Math.round(totalMix) === 100;
 
   // ── Calcul du CR 5 ans ───────────────────────────────────────────────────────
   const compteResultat = useMemo(() => {
-    const tauxCA = hyp.tauxCroissanceCA / 100;
-    const tauxInflation = hyp.tauxInflationCharges / 100;
+    const tauxCA = localHyp.tauxCroissanceCA / 100;
+    const tauxInflation = localHyp.tauxInflationCharges / 100;
 
     const caAn1 = calculerCA(
-      hyp.traficHebdo,
-      hyp.semainesOuverture,
+      traficHebdo,
+      localHyp.semainesOuverture,
       categories,
     );
     const casProjectes = projeterSur5Ans(caAn1, tauxCA);
@@ -197,7 +220,13 @@ export default function BusinessPlanPage() {
       const pctEbe = ca > 0 ? (ebe / ca) * 100 : 0;
       return { ca, coutMatiere, margeBrute, charges, salaires, ebe, pctEbe };
     });
-  }, [hyp, categories, totalFraisFixesAn, totalMasseSalarialeAn]);
+  }, [
+    localHyp,
+    traficHebdo,
+    categories,
+    totalFraisFixesAn,
+    totalMasseSalarialeAn,
+  ]);
 
   const ANNEES = ["Année 1", "Année 2", "Année 3", "Année 4", "Année 5"];
 
@@ -254,29 +283,37 @@ export default function BusinessPlanPage() {
             Hypothèses Globales
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
+        <CardContent className="space-y-5">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3 lg:grid-cols-5">
             <NumericInput
-              id="trafic"
-              label="Trafic (clients/semaine)"
-              value={hyp.traficHebdo}
-              onChange={(v) => setHypField("traficHebdo", v)}
+              id="couvertsParJour"
+              label="Couverts/jour"
+              value={localHyp.couvertsParJour}
+              onChange={(v) => setLocalHypField("couvertsParJour", v)}
               min={1}
-              ocid="business-plan.trafic.input"
+              ocid="business-plan.couvertsparjour.input"
+            />
+            <NumericInput
+              id="joursOuvertureAn"
+              label="Jours/an"
+              value={localHyp.joursOuvertureAn}
+              onChange={(v) => setLocalHypField("joursOuvertureAn", v)}
+              min={1}
+              ocid="business-plan.joursouverturean.input"
             />
             <NumericInput
               id="semaines"
-              label="Semaines d'ouverture/an"
-              value={hyp.semainesOuverture}
-              onChange={(v) => setHypField("semainesOuverture", v)}
+              label="Semaines/an"
+              value={localHyp.semainesOuverture}
+              onChange={(v) => setLocalHypField("semainesOuverture", v)}
               min={1}
               ocid="business-plan.semaines.input"
             />
             <NumericInput
               id="croissance"
               label="Croissance CA/an"
-              value={hyp.tauxCroissanceCA}
-              onChange={(v) => setHypField("tauxCroissanceCA", v)}
+              value={localHyp.tauxCroissanceCA}
+              onChange={(v) => setLocalHypField("tauxCroissanceCA", v)}
               min={-50}
               step={0.5}
               suffix="%"
@@ -285,13 +322,30 @@ export default function BusinessPlanPage() {
             <NumericInput
               id="inflation"
               label="Inflation charges/an"
-              value={hyp.tauxInflationCharges}
-              onChange={(v) => setHypField("tauxInflationCharges", v)}
+              value={localHyp.tauxInflationCharges}
+              onChange={(v) => setLocalHypField("tauxInflationCharges", v)}
               min={-20}
               step={0.5}
               suffix="%"
               ocid="business-plan.inflation.input"
             />
+          </div>
+          <div className="flex items-center gap-3 pt-1 border-t border-border">
+            <Button
+              onClick={handleSaveHypotheses}
+              size="sm"
+              className="gap-2"
+              data-ocid="business-plan.save_hypotheses.button"
+            >
+              <Save className="h-4 w-4" />
+              Enregistrer les Hypothèses
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Trafic hebdomadaire calculé :{" "}
+              <strong className="text-foreground tabular-nums">
+                {traficHebdo} clients/semaine
+              </strong>
+            </p>
           </div>
         </CardContent>
       </Card>
@@ -358,76 +412,84 @@ export default function BusinessPlanPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {categories.map((cat, i) => (
-                  <TableRow
-                    key={cat.id}
-                    data-ocid={`business-plan.categorie.item.${i + 1}`}
-                  >
-                    <TableCell className="pl-6 font-medium">
-                      {cat.categorie}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={cat.mix}
-                        onChange={(e) =>
-                          setCatField(cat.id, "mix", Number(e.target.value))
-                        }
-                        className="h-8 w-20 text-right tabular-nums ml-auto"
-                        data-ocid={`business-plan.mix.input.${i + 1}`}
-                      />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Input
-                        type="number"
-                        min={0}
-                        step={0.1}
-                        value={cat.ticketMoyen}
-                        onChange={(e) =>
-                          setCatField(
-                            cat.id,
-                            "ticketMoyen",
-                            Number(e.target.value),
-                          )
-                        }
-                        className="h-8 w-24 text-right tabular-nums ml-auto"
-                        data-ocid={`business-plan.ticket.input.${i + 1}`}
-                      />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={cat.foodCost}
-                        onChange={(e) =>
-                          setCatField(
-                            cat.id,
-                            "foodCost",
-                            Number(e.target.value),
-                          )
-                        }
-                        className="h-8 w-20 text-right tabular-nums ml-auto"
-                        data-ocid={`business-plan.foodcost.input.${i + 1}`}
-                      />
-                    </TableCell>
-                    <TableCell className="pr-6 text-right tabular-nums">
-                      <span
-                        className={
-                          100 - cat.foodCost >= 65
-                            ? "font-semibold text-emerald-600"
-                            : 100 - cat.foodCost >= 70
-                              ? "text-foreground"
-                              : "text-amber-600"
-                        }
-                      >
-                        {(100 - cat.foodCost).toFixed(0)} %
-                      </span>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {categoriesCarte.map((cat, i) => {
+                  const bp = syncedBpRows.find((r) => r.id === cat.id) ?? {
+                    ticketMoyen: 5.0,
+                    foodCost: 30,
+                  };
+                  return (
+                    <TableRow
+                      key={cat.id}
+                      data-ocid={`business-plan.categorie.item.${i + 1}`}
+                    >
+                      <TableCell className="pl-6 font-medium">
+                        {cat.nom}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={cat.mixCiblePct}
+                          onChange={(e) =>
+                            updateCategorieCarte(cat.id, {
+                              mixCiblePct: Number(e.target.value),
+                            })
+                          }
+                          className="h-8 w-20 text-right tabular-nums ml-auto"
+                          data-ocid={`business-plan.mix.input.${i + 1}`}
+                        />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Input
+                          type="number"
+                          min={0}
+                          step={0.1}
+                          value={bp.ticketMoyen}
+                          onChange={(e) =>
+                            setBpRowField(
+                              cat.id,
+                              "ticketMoyen",
+                              Number(e.target.value),
+                            )
+                          }
+                          className="h-8 w-24 text-right tabular-nums ml-auto"
+                          data-ocid={`business-plan.ticket.input.${i + 1}`}
+                        />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={bp.foodCost}
+                          onChange={(e) =>
+                            setBpRowField(
+                              cat.id,
+                              "foodCost",
+                              Number(e.target.value),
+                            )
+                          }
+                          className="h-8 w-20 text-right tabular-nums ml-auto"
+                          data-ocid={`business-plan.foodcost.input.${i + 1}`}
+                        />
+                      </TableCell>
+                      <TableCell className="pr-6 text-right tabular-nums">
+                        <span
+                          className={
+                            100 - bp.foodCost >= 65
+                              ? "font-semibold text-emerald-600"
+                              : 100 - bp.foodCost >= 70
+                                ? "text-foreground"
+                                : "text-amber-600"
+                          }
+                        >
+                          {(100 - bp.foodCost).toFixed(0)} %
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
                 {/* Ligne total */}
                 <TableRow className="bg-muted/30 border-t-2 border-border">
                   <TableCell className="pl-6 font-semibold text-foreground">

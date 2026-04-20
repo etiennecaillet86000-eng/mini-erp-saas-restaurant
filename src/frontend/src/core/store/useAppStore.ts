@@ -15,6 +15,8 @@ export interface HypothesesBP {
   tauxCroissanceAnnuel: number;
   tauxInflationAnnuel: number;
   joursOuvertureAn: number;
+  /** Ticket moyen cible HT (€) — utilisé pour le calcul du CA Cible Top-Down */
+  ticketMoyenCible: number;
 }
 
 interface AppStore {
@@ -122,6 +124,7 @@ const DEFAULT_HYPOTHESES_BP: HypothesesBP = {
   tauxCroissanceAnnuel: 5,
   tauxInflationAnnuel: 2,
   joursOuvertureAn: 300,
+  ticketMoyenCible: 25,
 };
 
 const DEFAULT_CATEGORIES_CARTE: CategorieCarte[] = [
@@ -219,6 +222,10 @@ export const useAppStore = create<AppStore>()(
         return {
           ...currentState,
           ...persisted,
+          hypothesesBP: {
+            ...DEFAULT_HYPOTHESES_BP,
+            ...(persisted.hypothesesBP ?? {}),
+          },
           categoriesCarte:
             persisted.categoriesCarte && persisted.categoriesCarte.length > 0
               ? persisted.categoriesCarte

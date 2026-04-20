@@ -204,3 +204,99 @@ export function calculerMargeReellePct(
   if (caAnnuel === 0) return 0;
   return ((caAnnuel - coutMatiereAnnuel) / caAnnuel) * 100;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Comparatif Stratégique vs Réel (Sprint 8.3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Calcule le Chiffre d'Affaires cible annuel (approche Top-Down).
+ * CA Cible = Couverts/jour × Jours d'ouverture/an × Ticket moyen cible
+ *
+ * @param couvertsParJour   - Nombre de couverts quotidiens cibles
+ * @param joursOuvertureAn  - Nombre de jours d'ouverture par an
+ * @param ticketMoyenCible  - Ticket moyen cible HT (€) — défaut 25 €
+ * @returns CA cible annuel HT (€)
+ */
+export function calculerCACibleAnnuel(
+  couvertsParJour: number,
+  joursOuvertureAn: number,
+  ticketMoyenCible = 25,
+): number {
+  return couvertsParJour * joursOuvertureAn * ticketMoyenCible;
+}
+
+/**
+ * Calcule la Marge Brute cible annuelle.
+ * Marge Cible = CA Cible × (1 − Food Cost Cible % / 100)
+ *
+ * @param caCible          - CA cible annuel HT (€)
+ * @param foodCostCiblePct - Food Cost cible en % (ex: 30 pour 30 %)
+ * @returns Marge brute cible annuelle (€)
+ */
+export function calculerMargeBruteCibleAnnuelle(
+  caCible: number,
+  foodCostCiblePct: number,
+): number {
+  return caCible * (1 - foodCostCiblePct / 100);
+}
+
+/**
+ * Calcule la Marge Brute réelle annuelle.
+ * Marge Réelle = CA Réel − Coût Matière Réel
+ *
+ * @param caReel          - CA réel annuel HT (€)
+ * @param coutMatiereReel - Coût matière réel annuel HT (€)
+ * @returns Marge brute réelle annuelle (€)
+ */
+export function calculerMargeBruteReelleAnnuelle(
+  caReel: number,
+  coutMatiereReel: number,
+): number {
+  return caReel - coutMatiereReel;
+}
+
+/**
+ * Calcule le Point Mort journalier (CA journalier nécessaire pour couvrir
+ * les charges fixes et la masse salariale).
+ *
+ * Point Mort/j = (Frais Fixes Annuels + Masse Salariale Annuelle)
+ *                / Jours d'ouverture / (Taux Marge Contribution / 100)
+ *
+ * @param fraisFixesAnnuels        - Total frais fixes annuels (€)
+ * @param masseSalarialeAnnuelle   - Total masse salariale annuelle (€)
+ * @param joursOuvertureAn         - Jours d'ouverture par an
+ * @param tauxMargeContribution    - Taux de marge sur coût variable (%) ex: 70
+ * @returns Point mort journalier (€) — 0 si taux marge contribution = 0
+ */
+export function calculerPointMortJournalier(
+  fraisFixesAnnuels: number,
+  masseSalarialeAnnuelle: number,
+  joursOuvertureAn: number,
+  tauxMargeContribution: number,
+): number {
+  if (tauxMargeContribution === 0 || joursOuvertureAn === 0) return 0;
+  return (
+    (fraisFixesAnnuels + masseSalarialeAnnuelle) /
+    joursOuvertureAn /
+    (tauxMargeContribution / 100)
+  );
+}
+
+/**
+ * Calcule l'écart (delta) entre une valeur cible et une valeur réelle.
+ * Delta Valeur = Réel − Cible
+ * Delta % = ((Réel − Cible) / Cible) × 100
+ *
+ * @param cible - Valeur cible de référence
+ * @param reel  - Valeur réelle observée
+ * @returns { deltaValeur, deltaPct } — deltaPct = 0 si cible = 0
+ */
+export function calculerDelta(
+  cible: number,
+  reel: number,
+): { deltaValeur: number; deltaPct: number } {
+  const deltaValeur = reel - cible;
+  const deltaPct = cible !== 0 ? ((reel - cible) / cible) * 100 : 0;
+  return { deltaValeur, deltaPct };
+}

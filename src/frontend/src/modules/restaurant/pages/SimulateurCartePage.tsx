@@ -1,13 +1,14 @@
 /**
- * SimulateurCartePage — Laboratoire Recettes (Sprint 8)
+ * SimulateurCartePage — Laboratoire Recettes (Sprint 8.2)
  *
  * RÈGLE : Aucun calcul inline. Toute la logique mathématique passe par les
  * fonctions pures de calculations.ts.
  *
  * Sections :
- *  A — Tableau comparatif Mix Cible vs Mix Réel (catégories dynamiques)
+ *  A — Tableau comparatif Mix Cible vs Mix Réel (catégories dynamiques du store)
  *  B — Grille de saisie des volumes par recette
- *  C — Bilan KPI hebdomadaire + projection annuelle
+ *  C — Moyennes par Catégories (volume total + Mix Réel par catégorie)
+ *  D — Bilan KPI hebdomadaire + projection annuelle
  */
 
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,7 @@ import {
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import {
   calculerCAReel,
   calculerCAReelAnnuel,
@@ -163,18 +164,11 @@ export default function SimulateurCartePage() {
   const ingredients = useAppStore((s) => s.ingredients);
   const categoriesCarte = useAppStore((s) => s.categoriesCarte);
   const hypothesesBP = useAppStore((s) => s.hypothesesBP);
-
-  // Volumes keyed by recette.id, initialised at 0 for recettes at mount time.
-  const initialVolumesRef = useRef<Record<string, number>>(
-    Object.fromEntries(recettes.map((r) => [r.id, 0])),
-  );
-  const [volumes, setVolumes] = useState<Record<string, number>>(
-    initialVolumesRef.current,
-  );
+  const updateRecette = useAppStore((s) => s.updateRecette);
 
   const updateVolume = (id: string, raw: string) => {
     const val = Math.max(0, Number.parseInt(raw, 10) || 0);
-    setVolumes((prev) => ({ ...prev, [id]: val }));
+    updateRecette(id, { volumeHebdo: val });
   };
 
   // ── Lookup: categorieId → nom ─────────────────────────────────────────────
@@ -184,17 +178,31 @@ export default function SimulateurCartePage() {
     [categoriesCarte],
   );
 
+  // ── Total volume (all recipes) ────────────────────────────────────────────
+
+  const totalVolumeHebdo = useMemo(
+    () => recettes.reduce((sum, r) => sum + (r.volumeHebdo ?? 0), 0),
+    [recettes],
+  );
+
   // ── Section A — Mix data (one row per CategorieCarte) ─────────────────────
+  // Mix Réel = (sum of volumeHebdo for recettes in this category /
+  //             sum of ALL recettes' volumeHebdo) * 100
+  // Handles total=0 → returns 0 (no NaN/Infinity)
 
   const mixRows = useMemo(
     () =>
-      categoriesCarte.map((cat) => ({
-        id: cat.id,
-        nom: cat.nom,
-        cible: cat.mixCiblePct,
-        reel: calculerMixReelCategorie(recettes, volumes, cat.id),
-      })),
-    [categoriesCarte, recettes, volumes],
+      categoriesCarte.map((cat) => {
+        const volumeCategorie = recettes
+          .filter((r) => r.categorieId === cat.id)
+          .reduce((sum, r) => sum + (r.volumeHebdo ?? 0), 0);
+        const reel =
+          totalVolumeHebdo === 0
+            ? 0
+            : (volumeCategorie / totalVolumeHebdo) * 100;
+        return { id: cat.id, nom: cat.nom, cible: cat.mixCiblePct, reel };
+      }),
+    [categoriesCarte, recettes, totalVolumeHebdo],
   );
 
   const totalMixCible = useMemo(
@@ -220,27 +228,22 @@ export default function SimulateurCartePage() {
     [recettes, ingredients],
   );
 
-  const totalVolumeHebdo = useMemo(
-    () => recettes.reduce((sum, r) => sum + (volumes[r.id] ?? 0), 0),
-    [recettes, volumes],
-  );
-
   const caHebdo = useMemo(
     () =>
       calculerCAReel(
-        recettes.map((r) => volumes[r.id] ?? 0),
+        recettes.map((r) => r.volumeHebdo ?? 0),
         recettes.map((r) => r.prixVenteHT),
       ),
-    [recettes, volumes],
+    [recettes],
   );
 
   const totalCoutMatiereHebdo = useMemo(
     () =>
       recettes.reduce(
-        (sum, r) => sum + (volumes[r.id] ?? 0) * (coutById[r.id] ?? 0),
+        (sum, r) => sum + (r.volumeHebdo ?? 0) * (coutById[r.id] ?? 0),
         0,
       ),
-    [recettes, volumes, coutById],
+    [recettes, coutById],
   );
 
   const foodCostGlobal = useMemo(
@@ -253,12 +256,36 @@ export default function SimulateurCartePage() {
     return ((caHebdo - totalCoutMatiereHebdo) / caHebdo) * 100;
   }, [caHebdo, totalCoutMatiereHebdo]);
 
-  // ── Section C — Annual projection ────────────────────────────────────────
+  // ── Section C — Synthèse par Catégorie ──────────────────────────────────
+  // Uses the pure function calculerMixReelCategorie from calculations.ts
+
+  const volumesById = useMemo<Record<string, number>>(
+    () => Object.fromEntries(recettes.map((r) => [r.id, r.volumeHebdo ?? 0])),
+    [recettes],
+  );
+
+  const categorieStats = useMemo(
+    () =>
+      categoriesCarte.map((cat) => {
+        const volumeTotal = recettes
+          .filter((r) => r.categorieId === cat.id)
+          .reduce((sum, r) => sum + (r.volumeHebdo ?? 0), 0);
+        const mixReel = calculerMixReelCategorie(recettes, volumesById, cat.id);
+        return { id: cat.id, nom: cat.nom, volumeTotal, mixReel };
+      }),
+    [categoriesCarte, recettes, volumesById],
+  );
+
+  // ── Section D — Annual projection ────────────────────────────────────────
 
   const caAnnuel = useMemo(
     () =>
-      calculerCAReelAnnuel(recettes, volumes, hypothesesBP.semainesOuverture),
-    [recettes, volumes, hypothesesBP.semainesOuverture],
+      calculerCAReelAnnuel(
+        recettes,
+        volumesById,
+        hypothesesBP.semainesOuverture,
+      ),
+    [recettes, volumesById, hypothesesBP.semainesOuverture],
   );
 
   const margeAlert = margeBruteGlobale < 70 && caHebdo > 0;
@@ -279,13 +306,13 @@ export default function SimulateurCartePage() {
           </CardTitle>
           <p className="text-sm text-muted-foreground">
             Comparez votre mix de vente réel (volumes Section B) avec vos
-            objectifs stratégiques.
-            <span className="ml-1 text-emerald-600 dark:text-emerald-400 font-medium">
+            objectifs stratégiques.{" "}
+            <span className="text-emerald-600 dark:text-emerald-400 font-medium">
               Vert
             </span>{" "}
             = au‑dessus de la cible,{" "}
             <span className="text-destructive font-medium">Rouge</span> = en
-            dessous.
+            dessous. Le Mix Cible est défini dans le Business Plan.
           </p>
         </CardHeader>
         <CardContent className="p-0">
@@ -416,7 +443,7 @@ export default function SimulateurCartePage() {
                   </TableHeader>
                   <TableBody>
                     {recettes.map((recette, idx) => {
-                      const vol = volumes[recette.id] ?? 0;
+                      const vol = recette.volumeHebdo ?? 0;
                       const coutMatiere = coutById[recette.id] ?? 0;
                       const margeUnit = calculerMargeRecette(
                         recette.prixVenteHT,
@@ -424,7 +451,6 @@ export default function SimulateurCartePage() {
                       );
                       const margeLigne = vol * margeUnit;
 
-                      // Resolve category name: prefer categorieId → CategorieCarte, fallback to legacy categorie
                       const categorieNom =
                         (recette.categorieId &&
                           categorieNomById[recette.categorieId]) ||
@@ -490,7 +516,7 @@ export default function SimulateurCartePage() {
                 </Table>
               </div>
 
-              {/* Totals summary cards below table */}
+              {/* Summary mini-cards */}
               <div className="grid grid-cols-2 gap-3 px-6 py-4 border-t border-border bg-muted/20 sm:grid-cols-2">
                 <div className="rounded-md bg-card border border-border px-4 py-3">
                   <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-1">
@@ -514,10 +540,99 @@ export default function SimulateurCartePage() {
         </CardContent>
       </Card>
 
-      {/* ── SECTION C — Bilan KPI ─────────────────────────────────────── */}
+      {/* ── SECTION C — Moyennes par Catégories ───────────────────────── */}
+      <Card
+        className="border-border bg-card"
+        data-ocid="labo-recettes.categories.section"
+      >
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-semibold text-foreground">
+            Section C — Moyennes par Catégories
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Volume total et Mix Réel calculés par catégorie à partir des volumes
+            saisis en Section B.
+          </p>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-border hover:bg-transparent">
+                  <TableHead className="pl-6 font-semibold text-foreground">
+                    Catégorie
+                  </TableHead>
+                  <TableHead className="text-right font-semibold text-foreground">
+                    Volume Total (couverts/sem.)
+                  </TableHead>
+                  <TableHead className="text-right pr-6 font-semibold text-foreground">
+                    Mix Réel (%)
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {categorieStats.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={3}
+                      className="text-center py-10 text-muted-foreground text-sm"
+                    >
+                      Aucune catégorie configurée.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  categorieStats.map((stat, idx) => (
+                    <TableRow
+                      key={stat.id}
+                      className="border-border hover:bg-muted/40 transition-colors"
+                      data-ocid={`labo-recettes.categories.item.${idx + 1}`}
+                    >
+                      <TableCell className="pl-6 font-medium text-foreground">
+                        {stat.nom}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-foreground">
+                        {stat.volumeTotal.toLocaleString("fr-FR")}
+                      </TableCell>
+                      <TableCell className="text-right pr-6">
+                        <span
+                          className={`tabular-nums font-medium ${
+                            stat.volumeTotal === 0
+                              ? "text-muted-foreground"
+                              : "text-foreground"
+                          }`}
+                        >
+                          {formatPct(stat.mixReel)}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+              {categorieStats.length > 0 && (
+                <TableFooter>
+                  <TableRow className="border-border bg-muted/30 hover:bg-muted/40">
+                    <TableCell className="pl-6 font-semibold text-foreground">
+                      Total
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-semibold text-foreground">
+                      {totalVolumeHebdo.toLocaleString("fr-FR")}
+                    </TableCell>
+                    <TableCell className="text-right pr-6 tabular-nums font-semibold text-foreground">
+                      {formatPct(totalVolumeHebdo === 0 ? 0 : 100)}
+                    </TableCell>
+                  </TableRow>
+                </TableFooter>
+              )}
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── SECTION D — Bilan KPI ─────────────────────────────────────── */}
       <div data-ocid="labo-recettes.bilan.section">
         <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground px-0.5">
-          Section C — Bilan de la Carte
+          Section D — Bilan de la Carte · Projection sur{" "}
+          {hypothesesBP.semainesOuverture} sem.
         </p>
         <div className="flex flex-col gap-4 sm:flex-row">
           <KpiCard
@@ -541,7 +656,7 @@ export default function SimulateurCartePage() {
             data-ocid="labo-recettes.kpi-marge.card"
           />
           <KpiCard
-            label={`Projection Annuelle (${hypothesesBP.semainesOuverture} sem.)`}
+            label="Projection Annuelle"
             value={formatEur(caAnnuel)}
             positive={caAnnuel > 0}
             data-ocid="labo-recettes.kpi-annuel.card"

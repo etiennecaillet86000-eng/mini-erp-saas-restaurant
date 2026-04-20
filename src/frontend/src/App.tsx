@@ -10,6 +10,7 @@ import Parametres from "@/pages/Parametres";
 import Quotidien from "@/pages/Quotidien";
 import SimulateurCarte from "@/pages/SimulateurCarte";
 import { useState } from "react";
+import { Toaster } from "sonner";
 
 export type Page =
   | "parametres"
@@ -54,6 +55,7 @@ export default function App() {
   return (
     <Layout currentPage={currentPage} onNavigate={setCurrentPage}>
       {renderPage()}
+      <Toaster richColors position="bottom-right" />
     </Layout>
   );
 }

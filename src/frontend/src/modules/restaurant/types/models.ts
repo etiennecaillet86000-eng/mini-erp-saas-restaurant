@@ -89,4 +89,6 @@ export interface RecetteFB {
   prixVenteHT: number;
   ingredients: RecetteIngredient[];
   tva: number; // % ex: 10 pour 10 %
+  /** Volume estimé vendu par semaine — partagé entre Laboratoire et BP Réel */
+  volumeHebdo?: number;
 }

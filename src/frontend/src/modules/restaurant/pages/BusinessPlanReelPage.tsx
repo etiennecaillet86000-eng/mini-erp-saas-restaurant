@@ -21,20 +21,18 @@ import {
   useAppStore,
 } from "@/core/store/useAppStore";
 import {
+  calculerCACibleAnnuel,
   calculerCAReelAnnuel,
   calculerCoutMatiereReelAnnuel,
+  calculerDelta,
   calculerFoodCostReelPct,
+  calculerMargeBruteCibleAnnuelle,
+  calculerMargeBruteReelleAnnuelle,
   calculerMargeReellePct,
+  calculerPointMortJournalier,
 } from "@/modules/restaurant/utils/calculations";
 import { calculerEBE } from "@/utils/math/finance";
-import {
-  ArrowDown,
-  ArrowUp,
-  Minus,
-  TrendingDown,
-  TrendingUp,
-} from "lucide-react";
-import { useState } from "react";
+import { Minus, TrendingDown, TrendingUp } from "lucide-react";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -55,6 +53,160 @@ function formatPctOfCA(value: number, ca: number): string {
   return formatPct((value / ca) * 100);
 }
 
+// ─── Delta Indicator ─────────────────────────────────────────────────────────
+
+interface DeltaIndicatorProps {
+  delta: number;
+  label?: string;
+  invertLogic?: boolean; // for Point Mort: lower is better
+}
+
+function DeltaIndicator({
+  delta,
+  label,
+  invertLogic = false,
+}: DeltaIndicatorProps) {
+  const isPositive = invertLogic ? delta < 0 : delta > 0;
+  const isNeutral = delta === 0;
+
+  if (isNeutral) {
+    return (
+      <span className="inline-flex items-center gap-1 text-muted-foreground text-sm font-medium">
+        <Minus className="h-3.5 w-3.5" />
+        {label ?? "—"}
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-sm font-semibold ${
+        isPositive
+          ? "text-emerald-600 dark:text-emerald-400"
+          : "text-red-600 dark:text-red-400"
+      }`}
+    >
+      {isPositive ? (
+        <TrendingUp className="h-3.5 w-3.5" />
+      ) : (
+        <TrendingDown className="h-3.5 w-3.5" />
+      )}
+      {label}
+    </span>
+  );
+}
+
+// ─── Comparison Card ─────────────────────────────────────────────────────────
+
+interface MetricComparaisonCardProps {
+  title: string;
+  subtitle?: string;
+  cibleLabel: string;
+  reelLabel: string;
+  cibleValue: string;
+  reelValue: string;
+  deltaValeur: number;
+  deltaPct?: number | null;
+  deltaValeurFormatted: string;
+  invertLogic?: boolean;
+  ocid: string;
+}
+
+function MetricComparaisonCard({
+  title,
+  subtitle,
+  cibleLabel,
+  reelLabel,
+  cibleValue,
+  reelValue,
+  deltaValeur,
+  deltaPct,
+  deltaValeurFormatted,
+  invertLogic = false,
+  ocid,
+}: MetricComparaisonCardProps) {
+  const isPositive = invertLogic ? deltaValeur < 0 : deltaValeur > 0;
+  const isNeutral = deltaValeur === 0;
+  const reelColorClass = isNeutral
+    ? "text-foreground"
+    : isPositive
+      ? "text-emerald-600 dark:text-emerald-400"
+      : "text-red-600 dark:text-red-400";
+
+  return (
+    <Card className="border-border" data-ocid={ocid}>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+            {title}
+          </CardTitle>
+          {!isNeutral && (
+            <span
+              className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${
+                isPositive
+                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
+                  : "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400"
+              }`}
+            >
+              {isPositive ? (
+                <TrendingUp className="h-3 w-3" />
+              ) : (
+                <TrendingDown className="h-3 w-3" />
+              )}
+              {deltaValeurFormatted}
+            </span>
+          )}
+        </div>
+        {subtitle && (
+          <p className="text-xs text-muted-foreground">{subtitle}</p>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {/* Values row */}
+        <div className="grid grid-cols-2 divide-x divide-border">
+          <div className="pr-4">
+            <p className="text-xs text-muted-foreground mb-1">{cibleLabel}</p>
+            <p className="text-xl font-bold text-foreground tabular-nums">
+              {cibleValue}
+            </p>
+          </div>
+          <div className="pl-4">
+            <p className="text-xs text-muted-foreground mb-1">{reelLabel}</p>
+            <p className={`text-xl font-bold tabular-nums ${reelColorClass}`}>
+              {reelValue}
+            </p>
+          </div>
+        </div>
+        {/* Delta row */}
+        <div className="pt-2 border-t border-border flex items-center justify-between">
+          <span className="text-xs text-muted-foreground">Écart</span>
+          <div className="flex items-center gap-3">
+            <DeltaIndicator
+              delta={deltaValeur}
+              label={deltaValeurFormatted}
+              invertLogic={invertLogic}
+            />
+            {deltaPct !== null && deltaPct !== undefined && (
+              <span
+                className={`text-xs font-medium tabular-nums ${
+                  isNeutral
+                    ? "text-muted-foreground"
+                    : isPositive
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-red-600 dark:text-red-400"
+                }`}
+              >
+                ({deltaPct >= 0 ? "+" : ""}
+                {deltaPct.toFixed(1)} %)
+              </span>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function BusinessPlanReelPage() {
@@ -65,34 +217,38 @@ export default function BusinessPlanReelPage() {
   const hypothesesBP = useAppStore((s) => s.hypothesesBP);
   const salaries = useAppStore((s) => s.salaries);
   const fraisFixes = useAppStore((s) => s.fraisFixes);
+  const updateRecette = useAppStore((s) => s.updateRecette);
 
-  // ── Local state: volumes hebdomadaires par recette ─────────────────────────
-  const [volumes, setVolumes] = useState<Record<string, number>>({});
+  // ── Volumes: build the map from store (recette.volumeHebdo) ───────────────
+  const volumes = Object.fromEntries(
+    recettes.map((r) => [r.id, r.volumeHebdo ?? 0]),
+  );
 
   // ── Derived: selectors ─────────────────────────────────────────────────────
   const masseSalarialeAnnuelle = selectTotalMasseSalarialeAnnuelle(salaries);
   const chargesFixesAnnuelles = selectTotalFraisFixesAnnuels(fraisFixes);
-  const { semainesOuverture } = hypothesesBP;
+  const { semainesOuverture, joursOuvertureAn } = hypothesesBP;
 
-  // ── Derived: CA Cible (Top-Down) ───────────────────────────────────────────
-  // couvertsParJour × joursOuvertureAn × ticketMoyen fictif — on utilise
-  // couvertsParJour comme proxy trafic puisque hypothesesBP n'a pas traficHebdo.
-  // CA Cible = couvertsParJour × joursOuvertureAn × ticketMoyenHypothétique
-  // Sans ticketMoyenEuros dans le store, on calcule via les recettes ou on
-  // l'estime à 0 pour montrer "non configuré" — on utilise les champs réels.
-  const caCibleAnnuel =
-    hypothesesBP.couvertsParJour *
-    hypothesesBP.joursOuvertureAn *
-    // Ticket moyen pondéré estimé depuis les recettes existantes
-    (recettes.length > 0
-      ? recettes.reduce((sum, r) => sum + r.prixVenteHT, 0) / recettes.length
-      : 0);
+  // ── Food Cost cible — défaut 30 % si non configuré ─────────────────────────
+  const foodCostCiblePct = 30;
 
-  // ── Derived: Bottom-Up ─────────────────────────────────────────────────────
+  // ── Derived: CA ────────────────────────────────────────────────────────────
+  const caCibleAnnuel = calculerCACibleAnnuel(
+    hypothesesBP.couvertsParJour,
+    hypothesesBP.joursOuvertureAn,
+    hypothesesBP.ticketMoyenCible ?? 25,
+  );
   const caReelAnnuel = calculerCAReelAnnuel(
     recettes,
     volumes,
     semainesOuverture,
+  );
+  const deltaCa = calculerDelta(caCibleAnnuel, caReelAnnuel);
+
+  // ── Derived: Marge Brute ────────────────────────────────────────────────────
+  const margeBruteCibleAnnuelle = calculerMargeBruteCibleAnnuelle(
+    caCibleAnnuel,
+    foodCostCiblePct,
   );
   const coutMatiereReelAnnuel = calculerCoutMatiereReelAnnuel(
     recettes,
@@ -100,6 +256,29 @@ export default function BusinessPlanReelPage() {
     ingredients,
     semainesOuverture,
   );
+  const margeBruteReelleAnnuelle = calculerMargeBruteReelleAnnuelle(
+    caReelAnnuel,
+    coutMatiereReelAnnuel,
+  );
+  const deltaMarge = calculerDelta(
+    margeBruteCibleAnnuelle,
+    margeBruteReelleAnnuelle,
+  );
+
+  // ── Derived: Point Mort ────────────────────────────────────────────────────
+  const tauxMargeContribution = 100 - foodCostCiblePct; // 70%
+  const pointMortJournalier = calculerPointMortJournalier(
+    chargesFixesAnnuelles,
+    masseSalarialeAnnuelle,
+    joursOuvertureAn,
+    tauxMargeContribution,
+  );
+  const caJournalierReel =
+    joursOuvertureAn > 0 ? caReelAnnuel / joursOuvertureAn : 0;
+  const deltaPointMort = calculerDelta(pointMortJournalier, caJournalierReel);
+  // For Point Mort: CA Réel > Point Mort = profitable (invertLogic)
+
+  // ── Derived: P&L ──────────────────────────────────────────────────────────
   const foodCostReelPct = calculerFoodCostReelPct(
     coutMatiereReelAnnuel,
     caReelAnnuel,
@@ -108,20 +287,13 @@ export default function BusinessPlanReelPage() {
     coutMatiereReelAnnuel,
     caReelAnnuel,
   );
-  const margeBruteReelleEur = caReelAnnuel - coutMatiereReelAnnuel;
   const ebeReel = calculerEBE(
-    margeBruteReelleEur,
+    margeBruteReelleAnnuelle,
     chargesFixesAnnuelles,
     masseSalarialeAnnuelle,
   );
 
   // ── Color helpers ──────────────────────────────────────────────────────────
-  const caColor =
-    caReelAnnuel === 0
-      ? "text-muted-foreground"
-      : caReelAnnuel >= caCibleAnnuel
-        ? "text-emerald-600 dark:text-emerald-400"
-        : "text-red-600 dark:text-red-400";
   const ebeColor =
     ebeReel > 0
       ? "text-emerald-600 dark:text-emerald-400"
@@ -147,7 +319,7 @@ export default function BusinessPlanReelPage() {
     },
     {
       label: "(=) Marge Brute Réelle",
-      valeur: margeBruteReelleEur,
+      valeur: margeBruteReelleAnnuelle,
       pctCA: formatPct(margeBruteReellePct),
       bold: true,
       separator: true,
@@ -212,117 +384,89 @@ export default function BusinessPlanReelPage() {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-8" data-ocid="bp-reel.page">
-      {/* ── Section 1 : Bloc Comparatif ──────────────────────────────────── */}
+      {/* ── Section 1 : Comparatif Stratégique vs Réel ──────────────────────── */}
       <section data-ocid="bp-reel.comparatif.section">
-        <h2 className="font-display text-lg font-semibold text-foreground mb-4">
-          Comparatif Stratégique vs Réel
-        </h2>
-        <div className="grid gap-4 md:grid-cols-2">
-          {/* Carte Top-Down */}
-          <Card className="border-border" data-ocid="bp-reel.topdown.card">
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-2">
-                <TrendingUp className="h-5 w-5 text-primary" />
-                <CardTitle className="text-base font-semibold">
-                  BP Stratégique (Top-Down)
-                </CardTitle>
-              </div>
-              <Badge variant="secondary" className="w-fit text-xs">
-                Objectif BP Stratégique
-              </Badge>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">
-                  CA Annuel Cible
-                </p>
-                <p className="text-2xl font-bold text-foreground">
-                  {formatEuro(caCibleAnnuel)}
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {hypothesesBP.couvertsParJour} couverts/jour ×{" "}
-                  {hypothesesBP.joursOuvertureAn} jours
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-md bg-muted/50 p-3">
-                  <p className="text-xs text-muted-foreground">
-                    Semaines ouverture
-                  </p>
-                  <p className="font-semibold text-foreground">
-                    {hypothesesBP.semainesOuverture} sem.
-                  </p>
-                </div>
-                <div className="rounded-md bg-muted/50 p-3">
-                  <p className="text-xs text-muted-foreground">Jours/an</p>
-                  <p className="font-semibold text-foreground">
-                    {hypothesesBP.joursOuvertureAn} j.
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+        <div className="mb-4">
+          <h2 className="font-display text-lg font-semibold text-foreground">
+            Comparatif Stratégique vs Réel
+          </h2>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Confrontez vos objectifs BP Stratégique (Top-Down) avec les
+            résultats calculés depuis les volumes réels (Bottom-Up). Mise à jour
+            automatique.
+          </p>
+        </div>
 
-          {/* Carte Bottom-Up */}
-          <Card className="border-border" data-ocid="bp-reel.bottomup.card">
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-2">
-                {caReelAnnuel >= caCibleAnnuel && caReelAnnuel > 0 ? (
-                  <ArrowUp className="h-5 w-5 text-emerald-500" />
-                ) : (
-                  <ArrowDown className="h-5 w-5 text-red-500" />
-                )}
-                <CardTitle className="text-base font-semibold">
-                  BP Réel (Bottom-Up)
-                </CardTitle>
-              </div>
-              <Badge
-                variant={
-                  caReelAnnuel >= caCibleAnnuel && caReelAnnuel > 0
-                    ? "default"
-                    : "destructive"
-                }
-                className="w-fit text-xs"
-              >
-                {caReelAnnuel >= caCibleAnnuel && caReelAnnuel > 0
-                  ? "Objectif atteint"
-                  : "Sous l'objectif"}
-              </Badge>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">
-                  CA Annuel Réel
-                </p>
-                <p className={`text-2xl font-bold ${caColor}`}>
-                  {formatEuro(caReelAnnuel)}
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Basé sur les volumes saisis × {semainesOuverture} semaines
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-md bg-muted/50 p-3">
-                  <p className="text-xs text-muted-foreground">
-                    Food Cost Réel
-                  </p>
-                  <p
-                    className={`font-semibold ${foodCostReelPct > 35 ? "text-red-600 dark:text-red-400" : "text-foreground"}`}
-                  >
-                    {formatPct(foodCostReelPct)}
-                  </p>
-                </div>
-                <div className="rounded-md bg-muted/50 p-3">
-                  <p className="text-xs text-muted-foreground">Marge Brute</p>
-                  <p
-                    className={`font-semibold ${margeBruteReellePct >= 65 ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"}`}
-                  >
-                    {formatPct(margeBruteReellePct)}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {/* Métrique 1 — Chiffre d'Affaires */}
+          <MetricComparaisonCard
+            title="Chiffre d'Affaires"
+            subtitle={`Base : ${hypothesesBP.couvertsParJour} cvts/j × ${hypothesesBP.joursOuvertureAn} j × ${formatEuro(hypothesesBP.ticketMoyenCible ?? 25)} ticket`}
+            cibleLabel="CA Stratégique"
+            reelLabel="CA Réel"
+            cibleValue={formatEuro(caCibleAnnuel)}
+            reelValue={formatEuro(caReelAnnuel)}
+            deltaValeur={deltaCa.deltaValeur}
+            deltaPct={deltaCa.deltaPct}
+            deltaValeurFormatted={`${deltaCa.deltaValeur >= 0 ? "+" : ""}${formatEuro(deltaCa.deltaValeur)}`}
+            ocid="bp-reel.comparatif.ca.card"
+          />
+
+          {/* Métrique 2 — Marge Brute */}
+          <MetricComparaisonCard
+            title="Marge Brute"
+            subtitle={`Food Cost cible appliqué : ${foodCostCiblePct} %`}
+            cibleLabel="Marge Cible"
+            reelLabel="Marge Réelle"
+            cibleValue={formatEuro(margeBruteCibleAnnuelle)}
+            reelValue={formatEuro(margeBruteReelleAnnuelle)}
+            deltaValeur={deltaMarge.deltaValeur}
+            deltaPct={deltaMarge.deltaPct}
+            deltaValeurFormatted={`${deltaMarge.deltaValeur >= 0 ? "+" : ""}${formatEuro(deltaMarge.deltaValeur)}`}
+            ocid="bp-reel.comparatif.marge.card"
+          />
+
+          {/* Métrique 3 — Point Mort Journalier */}
+          <MetricComparaisonCard
+            title="Point Mort Journalier"
+            subtitle="CA/jour nécessaire pour couvrir charges + salaires"
+            cibleLabel="Point Mort Cible"
+            reelLabel="CA/jour Réel"
+            cibleValue={formatEuro(pointMortJournalier)}
+            reelValue={formatEuro(caJournalierReel)}
+            deltaValeur={deltaPointMort.deltaValeur}
+            deltaPct={null}
+            deltaValeurFormatted={`${deltaPointMort.deltaValeur >= 0 ? "+" : ""}${formatEuro(deltaPointMort.deltaValeur)}`}
+            invertLogic={false}
+            ocid="bp-reel.comparatif.pointmort.card"
+          />
+        </div>
+
+        {/* Summary status banner */}
+        <div
+          className={`mt-4 flex items-center gap-3 rounded-lg border px-4 py-3 text-sm ${
+            caJournalierReel >= pointMortJournalier && caReelAnnuel > 0
+              ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/30"
+              : "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30"
+          }`}
+          data-ocid="bp-reel.comparatif.status_banner"
+        >
+          {caJournalierReel >= pointMortJournalier && caReelAnnuel > 0 ? (
+            <TrendingUp className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+          ) : (
+            <TrendingDown className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0" />
+          )}
+          <span
+            className={`font-medium ${
+              caJournalierReel >= pointMortJournalier && caReelAnnuel > 0
+                ? "text-emerald-700 dark:text-emerald-400"
+                : "text-red-700 dark:text-red-400"
+            }`}
+          >
+            {caJournalierReel >= pointMortJournalier && caReelAnnuel > 0
+              ? `Rentable — Le CA journalier réel (${formatEuro(caJournalierReel)}/j) dépasse le point mort (${formatEuro(pointMortJournalier)}/j).`
+              : `Non rentable — Le CA journalier réel (${formatEuro(caJournalierReel)}/j) est inférieur au point mort (${formatEuro(pointMortJournalier)}/j). Augmentez les volumes ou réduisez les charges.`}
+          </span>
         </div>
       </section>
 
@@ -333,7 +477,7 @@ export default function BusinessPlanReelPage() {
         </h2>
         <p className="text-sm text-muted-foreground mb-4">
           Renseignez le volume hebdomadaire estimé pour chaque recette. Toutes
-          les métriques ci-dessous se mettent à jour en temps réel.
+          les métriques ci-dessus se mettent à jour en temps réel.
         </p>
         <Card>
           <Table>
@@ -376,10 +520,9 @@ export default function BusinessPlanReelPage() {
                         data-ocid={`bp-reel.volumes.input.${idx + 1}`}
                         onChange={(e) => {
                           const parsed = Number.parseFloat(e.target.value);
-                          setVolumes((prev) => ({
-                            ...prev,
-                            [recette.id]: Number.isNaN(parsed) ? 0 : parsed,
-                          }));
+                          updateRecette(recette.id, {
+                            volumeHebdo: Number.isNaN(parsed) ? 0 : parsed,
+                          });
                         }}
                       />
                     </TableCell>
@@ -403,6 +546,54 @@ export default function BusinessPlanReelPage() {
           Structure P&amp;L annuelle calculée à partir des volumes saisis, des
           coûts matières réels et des charges du store.
         </p>
+
+        {/* KPI mini-bar */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+          {[
+            { label: "CA Annuel Réel", value: formatEuro(caReelAnnuel) },
+            {
+              label: "Food Cost Réel",
+              value: formatPct(foodCostReelPct),
+              alert: foodCostReelPct > 35,
+            },
+            {
+              label: "Marge Brute Réelle",
+              value: formatPct(margeBruteReellePct),
+              positive: margeBruteReellePct >= 65,
+            },
+            {
+              label: "EBE Annuel",
+              value: formatEuro(ebeReel),
+              colored: true,
+              positive: ebeReel >= 0,
+            },
+          ].map((kpi) => (
+            <div
+              key={kpi.label}
+              className="rounded-lg border border-border bg-card px-4 py-3"
+            >
+              <p className="text-xs text-muted-foreground">{kpi.label}</p>
+              <p
+                className={`text-lg font-bold tabular-nums mt-0.5 ${
+                  kpi.alert
+                    ? "text-red-600 dark:text-red-400"
+                    : kpi.colored
+                      ? kpi.positive
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-red-600 dark:text-red-400"
+                      : kpi.positive !== undefined
+                        ? kpi.positive
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-foreground"
+                        : "text-foreground"
+                }`}
+              >
+                {kpi.value}
+              </p>
+            </div>
+          ))}
+        </div>
+
         <Card>
           <Table>
             <TableHeader>
