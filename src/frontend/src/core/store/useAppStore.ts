@@ -15,6 +15,9 @@ export interface HypothesesBP {
   tauxCroissanceAnnuel: number;
   tauxInflationAnnuel: number;
   joursOuvertureAn: number;
+  objectifCAannuel: number;
+  joursOuvertureParSemaine: number;
+  ticketMoyenCible: number;
 }
 
 interface AppStore {
@@ -30,6 +33,7 @@ interface AppStore {
   setSalaries: (salaries: Salarie[]) => void;
   setFraisFixes: (fraisFixes: FraisFixe[]) => void;
   setHypothesesBP: (hypotheses: Partial<HypothesesBP>) => void;
+  updateHypotheses: (updates: Partial<HypothesesBP>) => void;
 
   // Ingrédients F&B
   addIngredient: (ing: IngredientFB) => void;
@@ -125,6 +129,9 @@ const DEFAULT_HYPOTHESES_BP: HypothesesBP = {
   tauxCroissanceAnnuel: 5,
   tauxInflationAnnuel: 2,
   joursOuvertureAn: 300,
+  objectifCAannuel: 500000,
+  joursOuvertureParSemaine: 5,
+  ticketMoyenCible: 20,
 };
 
 const DEFAULT_CATEGORIES_CARTE: CategorieCarte[] = [
@@ -168,6 +175,10 @@ export const useAppStore = create<AppStore>()(
       setHypothesesBP: (hypotheses) =>
         set((state) => ({
           hypothesesBP: { ...state.hypothesesBP, ...hypotheses },
+        })),
+      updateHypotheses: (updates) =>
+        set((state) => ({
+          hypothesesBP: { ...state.hypothesesBP, ...updates },
         })),
 
       addIngredient: (ing) =>

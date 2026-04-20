@@ -182,6 +182,8 @@ export default function SimulateurCartePage() {
   const ingredients = useAppStore((s) => s.ingredients);
   const updateRecette = useAppStore((s) => s.updateRecette);
   const resetVolumes = useAppStore((s) => s.resetVolumes);
+  // Phase 4.2 — BP hypotheses for coherence indicator
+  const hypothesesBP = useAppStore((s) => s.hypothesesBP);
 
   // ── Central stats hook (volumes, CA, Mix Réel per category) ──────────────
   const stats = useStatsSimulateur();
@@ -249,10 +251,58 @@ export default function SimulateurCartePage() {
 
   const margeAlert = margeBruteGlobale < 70 && totalCA > 0;
 
+  // ── Phase 4.2 — Coherence indicator (strategic volume target) ────────────
+  const volumeCibleHebdo =
+    hypothesesBP.semainesOuverture > 0 && hypothesesBP.ticketMoyenCible > 0
+      ? Math.round(
+          hypothesesBP.objectifCAannuel /
+            hypothesesBP.semainesOuverture /
+            hypothesesBP.ticketMoyenCible,
+        )
+      : 0;
+  const volumeDepasse = stats.volumeTotalGlobal > volumeCibleHebdo * 1.2;
+
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6" data-ocid="labo-recettes.page">
+      {/* ── Phase 4.2 — Indicateur de Cohérence de Volume ────────────────── */}
+      <Card
+        className="border-border bg-card"
+        data-ocid="labo-recettes.coherence.card"
+      >
+        <CardContent className="py-4 px-6 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Cohérence de Volume
+            </span>
+          </div>
+          <p
+            className={`text-sm font-semibold tabular-nums ${
+              volumeDepasse ? "text-red-600" : "text-foreground"
+            }`}
+            data-ocid="labo-recettes.coherence.indicator"
+          >
+            Volume simulé :{" "}
+            <span className="font-bold">
+              {stats.volumeTotalGlobal.toLocaleString("fr-FR")}
+            </span>{" "}
+            &nbsp;/&nbsp; Objectif stratégique :{" "}
+            <span className="font-bold">
+              {volumeCibleHebdo > 0
+                ? volumeCibleHebdo.toLocaleString("fr-FR")
+                : "—"}
+            </span>
+            {volumeDepasse && (
+              <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
+                <AlertTriangle className="h-3 w-3" />
+                Dépassement &gt; 20 %
+              </span>
+            )}
+          </p>
+        </CardContent>
+      </Card>
+
       {/* ── SECTION A — Comparateur Mix Produit ───────────────────────── */}
       <Card
         className="border-border bg-card"

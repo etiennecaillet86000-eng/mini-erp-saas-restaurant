@@ -29,7 +29,6 @@ import { useMemo, useState } from "react";
 
 interface Hypotheses {
   traficHebdo: number;
-  semainesOuverture: number;
   tauxCroissanceCA: number;
   tauxInflationCharges: number;
 }
@@ -44,7 +43,6 @@ interface LocalCatParams {
 
 const HYPOTHESES_INITIALES: Hypotheses = {
   traficHebdo: 200,
-  semainesOuverture: 48,
   tauxCroissanceCA: 5,
   tauxInflationCharges: 3,
 };
@@ -132,14 +130,22 @@ export default function BusinessPlanPage() {
   // ── Data from global store ───────────────────────────────────────────────────
   const salaries = useAppStore((s) => s.salaries);
   const fraisFixes = useAppStore((s) => s.fraisFixes);
-  // Action 2 & 3: use store categories as source of truth
   const categoriesCarte = useAppStore((s) => s.categoriesCarte);
   const updateCategorie = useAppStore((s) => s.updateCategorie);
+  // Action 2: store-connected hypotheses
+  const hypothesesBP = useAppStore((s) => s.hypothesesBP);
+  const updateHypotheses = useAppStore((s) => s.updateHypotheses);
+
+  // Action 3: objectifCAannuel from store
+  const objectifCAannuel = hypothesesBP.objectifCAannuel || 500000;
 
   const totalMasseSalarialeAn = selectTotalMasseSalarialeAnnuelle(salaries);
   const totalFraisFixesAn = selectTotalFraisFixesAnnuels(fraisFixes);
 
-  const totalMix = categoriesCarte.reduce((s, c) => s + c.mixCiblePct, 0);
+  const totalMix = categoriesCarte.reduce(
+    (s, c) => s + (c.mixCiblePct || 0),
+    0,
+  );
   const mixValide = Math.round(totalMix) === 100;
 
   const setHypField = (key: keyof Hypotheses, value: number) =>
@@ -176,7 +182,7 @@ export default function BusinessPlanPage() {
 
     const caAn1 = calculerCA(
       hyp.traficHebdo,
-      hyp.semainesOuverture,
+      hypothesesBP.semainesOuverture,
       categoriesForCalc,
     );
     const casProjectes = projeterSur5Ans(caAn1, tauxCA);
@@ -198,7 +204,13 @@ export default function BusinessPlanPage() {
       const pctEbe = ca > 0 ? (ebe / ca) * 100 : 0;
       return { ca, coutMatiere, margeBrute, charges, salaires, ebe, pctEbe };
     });
-  }, [hyp, categoriesForCalc, totalFraisFixesAn, totalMasseSalarialeAn]);
+  }, [
+    hyp,
+    hypothesesBP.semainesOuverture,
+    categoriesForCalc,
+    totalFraisFixesAn,
+    totalMasseSalarialeAn,
+  ]);
 
   const ANNEES = ["Année 1", "Année 2", "Année 3", "Année 4", "Année 5"];
 
@@ -265,14 +277,51 @@ export default function BusinessPlanPage() {
               min={1}
               ocid="business-plan.trafic.input"
             />
-            <NumericInput
-              id="semaines"
-              label="Semaines d'ouverture/an"
-              value={hyp.semainesOuverture}
-              onChange={(v) => setHypField("semainesOuverture", v)}
-              min={1}
-              ocid="business-plan.semaines.input"
-            />
+            {/* Action 2: Semaines d'ouverture — bound to store */}
+            <div className="space-y-1.5">
+              <Label
+                htmlFor="semaines"
+                className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
+              >
+                Semaines d'ouverture/an
+              </Label>
+              <Input
+                id="semaines"
+                type="number"
+                min={1}
+                value={hypothesesBP.semainesOuverture || ""}
+                onChange={(e) =>
+                  updateHypotheses({
+                    semainesOuverture: Number(e.target.value),
+                  })
+                }
+                onFocus={(e) => e.target.select()}
+                className="tabular-nums"
+                data-ocid="business-plan.semaines.input"
+              />
+            </div>
+            {/* Action 2: Objectif CA Annuel — bound to store */}
+            <div className="space-y-1.5">
+              <Label
+                htmlFor="objectif-ca"
+                className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
+              >
+                Objectif CA Annuel (€)
+              </Label>
+              <Input
+                id="objectif-ca"
+                type="number"
+                min={0}
+                step={10000}
+                value={hypothesesBP.objectifCAannuel || ""}
+                onChange={(e) =>
+                  updateHypotheses({ objectifCAannuel: Number(e.target.value) })
+                }
+                onFocus={(e) => e.target.select()}
+                className="tabular-nums"
+                data-ocid="business-plan.objectif-ca.input"
+              />
+            </div>
             <NumericInput
               id="croissance"
               label="Croissance CA/an"
@@ -293,6 +342,54 @@ export default function BusinessPlanPage() {
               suffix="%"
               ocid="business-plan.inflation.input"
             />
+            {/* Phase 4.2 — Jours d'ouverture par semaine */}
+            <div className="space-y-1.5">
+              <Label
+                htmlFor="jours-semaine"
+                className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
+              >
+                Jours d'ouverture / semaine
+              </Label>
+              <Input
+                id="jours-semaine"
+                type="number"
+                min={1}
+                max={7}
+                value={hypothesesBP.joursOuvertureParSemaine || ""}
+                onChange={(e) =>
+                  updateHypotheses({
+                    joursOuvertureParSemaine: Number(e.target.value) || 0,
+                  })
+                }
+                onFocus={(e) => e.target.select()}
+                className="tabular-nums"
+                data-ocid="business-plan.jours-semaine.input"
+              />
+            </div>
+            {/* Phase 4.2 — Ticket moyen cible */}
+            <div className="space-y-1.5">
+              <Label
+                htmlFor="ticket-moyen-cible"
+                className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
+              >
+                Ticket moyen cible (€)
+              </Label>
+              <Input
+                id="ticket-moyen-cible"
+                type="number"
+                min={0}
+                step={0.5}
+                value={hypothesesBP.ticketMoyenCible || ""}
+                onChange={(e) =>
+                  updateHypotheses({
+                    ticketMoyenCible: Number(e.target.value) || 0,
+                  })
+                }
+                onFocus={(e) => e.target.select()}
+                className="tabular-nums"
+                data-ocid="business-plan.ticket-moyen-cible.input"
+              />
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -347,6 +444,9 @@ export default function BusinessPlanPage() {
                 <TableRow className="bg-muted/40 hover:bg-muted/40">
                   <TableHead className="pl-6">Catégorie</TableHead>
                   <TableHead className="text-right w-32">Mix (%)</TableHead>
+                  <TableHead className="text-right w-44">
+                    CA Théorique (€)
+                  </TableHead>
                   <TableHead className="text-right w-40">
                     Ticket Moyen HT (€)
                   </TableHead>
@@ -359,10 +459,13 @@ export default function BusinessPlanPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {/* Action 2 & 3: loop over store categoriesCarte — no local hardcoded list */}
+                {/* Action 3: loop over store categoriesCarte — no local hardcoded list */}
                 {categoriesCarte.map((cat, i) => {
                   const params = localParams[cat.id] ?? DEFAULT_FALLBACK;
                   const margeResidue = 100 - params.foodCost;
+                  // Action 3: CA théorique = objectifCAannuel * mixCiblePct / 100
+                  const caTheorique =
+                    (objectifCAannuel * (cat.mixCiblePct || 0)) / 100;
                   return (
                     <TableRow
                       key={cat.id}
@@ -378,14 +481,18 @@ export default function BusinessPlanPage() {
                           max={100}
                           value={cat.mixCiblePct}
                           onChange={(e) =>
-                            // Action 2: update store so Laboratoire Section A reflects change instantly
                             updateCategorie(cat.id, {
-                              mixCiblePct: Number(e.target.value),
+                              mixCiblePct: Number(e.target.value) || 0,
                             })
                           }
+                          onFocus={(e) => e.target.select()}
                           className="h-8 w-20 text-right tabular-nums ml-auto"
                           data-ocid={`business-plan.mix.input.${i + 1}`}
                         />
+                      </TableCell>
+                      {/* Action 3: CA théorique calculé automatiquement */}
+                      <TableCell className="text-right tabular-nums text-sm text-muted-foreground">
+                        {caTheorique.toLocaleString("fr-FR")} €
                       </TableCell>
                       <TableCell className="text-right">
                         <Input
@@ -448,16 +555,121 @@ export default function BusinessPlanPage() {
                         !mixValide ? "text-destructive" : "text-emerald-600"
                       }
                     >
-                      {totalMix} %
+                      {totalMix.toFixed(1)} %
                     </span>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-sm font-semibold">
+                    {objectifCAannuel.toLocaleString("fr-FR")} €
                   </TableCell>
                   <TableCell colSpan={3} />
                 </TableRow>
               </TableBody>
             </Table>
           </div>
+          {/* Action 4: indicateur de cohérence du mix */}
+          {!mixValide && (
+            <p
+              className="px-6 py-3 text-sm font-medium text-amber-600"
+              data-ocid="business-plan.mix.total_warning"
+            >
+              Total actuel : {totalMix.toFixed(1)}% (Le total doit être de 100%)
+            </p>
+          )}
+          {mixValide && (
+            <p
+              className="px-6 py-3 text-sm font-medium text-emerald-600"
+              data-ocid="business-plan.mix.total_ok"
+            >
+              Total : 100% ✓
+            </p>
+          )}
         </CardContent>
       </Card>
+
+      {/* ── Phase 4.2 — Synthèse des Flux Clients ───────────────────────────── */}
+      {(() => {
+        const semaines = hypothesesBP.semainesOuverture || 0;
+        const ticket = hypothesesBP.ticketMoyenCible || 0;
+        const jours = hypothesesBP.joursOuvertureParSemaine || 0;
+        const caHebdo = semaines > 0 ? objectifCAannuel / semaines : 0;
+        const volSemaine = ticket > 0 ? caHebdo / ticket : 0;
+        const volJour = jours > 0 ? volSemaine / jours : 0;
+        return (
+          <Card data-ocid="business-plan.synthese-flux.card">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">
+                  ★
+                </span>
+                Synthèse des Flux Clients
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Objectifs de fréquentation déduits du CA annuel et du ticket
+                moyen cible.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                {/* KPI 1 — CA Hebdomadaire */}
+                <div
+                  className="rounded-lg border border-border bg-muted/20 p-4 space-y-1"
+                  data-ocid="business-plan.synthese-flux.ca-hebdo.card"
+                >
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Objectif CA Hebdomadaire
+                  </p>
+                  <p className="text-2xl font-bold tabular-nums font-display text-foreground">
+                    {caHebdo > 0
+                      ? new Intl.NumberFormat("fr-FR", {
+                          style: "currency",
+                          currency: "EUR",
+                          maximumFractionDigits: 0,
+                        }).format(caHebdo)
+                      : "—"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    CA annuel / semaines d'ouverture
+                  </p>
+                </div>
+                {/* KPI 2 — Volume clients / semaine */}
+                <div
+                  className="rounded-lg border border-border bg-muted/20 p-4 space-y-1"
+                  data-ocid="business-plan.synthese-flux.vol-semaine.card"
+                >
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Volume clients cible / semaine
+                  </p>
+                  <p className="text-2xl font-bold tabular-nums font-display text-foreground">
+                    {ticket > 0
+                      ? Math.round(volSemaine).toLocaleString("fr-FR")
+                      : "—"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    CA hebdo / ticket moyen cible
+                  </p>
+                </div>
+                {/* KPI 3 — Volume clients / jour */}
+                <div
+                  className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-1"
+                  data-ocid="business-plan.synthese-flux.vol-jour.card"
+                >
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Volume clients cible / jour
+                  </p>
+                  <p className="text-2xl font-bold tabular-nums font-display text-foreground">
+                    {ticket > 0 && jours > 0
+                      ? Math.round(volJour).toLocaleString("fr-FR")
+                      : "—"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Volume semaine / jours d'ouverture
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* ── Section C : Compte de Résultat 5 ans ────────────────────────────── */}
       <Card data-ocid="business-plan.cr5ans.card">
