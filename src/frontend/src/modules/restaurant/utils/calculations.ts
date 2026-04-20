@@ -129,6 +129,30 @@ export function calculerMixReelCategorie(
 }
 
 /**
+ * Calcule le Mix Réel (%) d'une catégorie à partir d'un volume total pré-calculé.
+ * Accepte le volumeTotalGlobal déjà calculé pour garantir que Section A et
+ * Section C utilisent strictement la même source de vérité.
+ *
+ * Formule : (Σ volumeHebdo des recettes de la catégorie / volumeTotalGlobal) × 100
+ *
+ * @param recettes           - Liste complète des fiches techniques (depuis le store)
+ * @param volumeTotalGlobal  - Somme totale des volumeHebdo de TOUTES les recettes
+ * @param categorieId        - Identifiant de la catégorie à analyser
+ * @returns Pourcentage entre 0 et 100 (0 si volumeTotalGlobal = 0)
+ */
+export function getMixReel(
+  recettes: RecetteFB[],
+  volumeTotalGlobal: number,
+  categorieId: string,
+): number {
+  if (volumeTotalGlobal === 0) return 0;
+  const volumeCategorie = recettes
+    .filter((r) => r.categorieId === categorieId)
+    .reduce((sum, r) => sum + (r.volumeHebdo ?? 0), 0);
+  return (volumeCategorie / volumeTotalGlobal) * 100;
+}
+
+/**
  * Calcule le Chiffre d'Affaires réel annuel (approche Bottom-Up).
  * CA Annuel = (Σ volume[r] × prixVenteHT[r]) × semainesOuverture
  *
