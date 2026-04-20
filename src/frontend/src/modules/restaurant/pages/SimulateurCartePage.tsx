@@ -1,5 +1,8 @@
 /**
- * SimulateurCartePage — Laboratoire Recettes
+ * SimulateurCartePage — Laboratoire Recettes (Sprint 8.2)
+ *
+ * RÈGLE : Aucun calcul inline. Toute la logique mathématique passe par les
+ * fonctions pures de calculations.ts.
  *
  * Sections :
  *  A — Tableau comparatif Mix Cible vs Mix Réel (catégories dynamiques du store)
@@ -10,7 +13,6 @@
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -33,6 +35,7 @@ import {
   calculerFoodCostRecette,
   calculerFoodCostReel,
   calculerMargeRecette,
+  getMixReel,
 } from "../utils/calculations";
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -156,24 +159,11 @@ function EmptyRecettes() {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function SimulateurCartePage() {
-  const { recettes, categoriesCarte, updateRecette } = useAppStore();
+  const recettes = useAppStore((s) => s.recettes);
   const ingredients = useAppStore((s) => s.ingredients);
+  const categoriesCarte = useAppStore((s) => s.categoriesCarte);
   const hypothesesBP = useAppStore((s) => s.hypothesesBP);
-
-  // --- MOTEUR DE CALCUL DÉRIVÉ PUR (NE PAS MODIFIER) ---
-  const volumeTotalGlobal = recettes.reduce(
-    (acc, recette) => acc + (Number(recette.volumeHebdo) || 0),
-    0,
-  );
-
-  const getMixReel = (categorieId: string) => {
-    if (volumeTotalGlobal === 0) return 0;
-    const volumeCategorie = recettes
-      .filter((r) => r.categorieId === categorieId)
-      .reduce((acc, r) => acc + (Number(r.volumeHebdo) || 0), 0);
-    return (volumeCategorie / volumeTotalGlobal) * 100;
-  };
-  // ------------------------------------------------------
+  const updateRecette = useAppStore((s) => s.updateRecette);
 
   // ── Lookup: categorieId → nom ─────────────────────────────────────────────
 
@@ -182,15 +172,36 @@ export default function SimulateurCartePage() {
     [categoriesCarte],
   );
 
-  // ── Totaux Mix ────────────────────────────────────────────────────────────
-
-  const totalMixCible = categoriesCarte.reduce(
-    (sum, c) => sum + c.mixCiblePct,
-    0,
+  // ── Total volume (all recipes) — memoized, recomputes when recettes changes
+  const totalVolumeHebdo = useMemo(
+    () => recettes.reduce((sum, r) => sum + (r.volumeHebdo ?? 0), 0),
+    [recettes],
   );
-  const totalMixReel = categoriesCarte.reduce(
-    (sum, c) => sum + getMixReel(c.id),
-    0,
+
+  // ── Section A — Mix data (one row per CategorieCarte) ─────────────────────
+  // Mix Réel = (sum of volumeHebdo for recettes in this category /
+  //             sum of ALL recettes' volumeHebdo) * 100
+  // Handles total=0 → returns 0 (no NaN/Infinity)
+  // totalVolumeHebdo is a plain const — always in sync, no stale dependency.
+
+  const mixRows = useMemo(
+    () =>
+      categoriesCarte.map((cat) => {
+        const reel = getMixReel(recettes, totalVolumeHebdo, cat.id);
+        return { id: cat.id, nom: cat.nom, cible: cat.mixCiblePct, reel };
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [categoriesCarte, recettes, totalVolumeHebdo],
+  );
+
+  const totalMixCible = useMemo(
+    () => categoriesCarte.reduce((sum, c) => sum + c.mixCiblePct, 0),
+    [categoriesCarte],
+  );
+
+  const totalMixReel = useMemo(
+    () => mixRows.reduce((sum, row) => sum + row.reel, 0),
+    [mixRows],
   );
 
   // ── Section B — Per-recette costs & marge ─────────────────────────────────
@@ -233,6 +244,23 @@ export default function SimulateurCartePage() {
     if (caHebdo === 0) return 0;
     return ((caHebdo - totalCoutMatiereHebdo) / caHebdo) * 100;
   }, [caHebdo, totalCoutMatiereHebdo]);
+
+  // ── Section C — Synthèse par Catégorie ──────────────────────────────────
+  // Calls getMixReel with the SAME totalVolumeHebdo as Section A —
+  // single source of truth, Section A and Section C always show identical %.
+
+  const categorieStats = useMemo(
+    () =>
+      categoriesCarte.map((cat) => {
+        const volumeTotal = recettes
+          .filter((r) => r.categorieId === cat.id)
+          .reduce((sum, r) => sum + (r.volumeHebdo ?? 0), 0);
+        const mixReel = getMixReel(recettes, totalVolumeHebdo, cat.id);
+        return { id: cat.id, nom: cat.nom, volumeTotal, mixReel };
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [categoriesCarte, recettes, totalVolumeHebdo],
+  );
 
   // ── Section D — Annual projection ────────────────────────────────────────
 
@@ -299,44 +327,40 @@ export default function SimulateurCartePage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  categoriesCarte.map((categorie, idx) => {
-                    const reel = getMixReel(categorie.id);
-                    const cible = categorie.mixCiblePct;
-                    return (
-                      <TableRow
-                        key={categorie.id}
-                        className="border-border hover:bg-muted/40 transition-colors"
-                        data-ocid={`labo-recettes.mix.item.${idx + 1}`}
-                      >
-                        <TableCell className="pl-6 font-medium text-foreground">
-                          {categorie.nom}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">
-                          {formatPct(cible)}
-                        </TableCell>
-                        <TableCell className="text-right pr-6">
-                          <div className="flex items-center justify-end gap-2">
+                  mixRows.map((row, idx) => (
+                    <TableRow
+                      key={row.id}
+                      className="border-border hover:bg-muted/40 transition-colors"
+                      data-ocid={`labo-recettes.mix.item.${idx + 1}`}
+                    >
+                      <TableCell className="pl-6 font-medium text-foreground">
+                        {row.nom}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-muted-foreground">
+                        {formatPct(row.cible)}
+                      </TableCell>
+                      <TableCell className="text-right pr-6">
+                        <div className="flex items-center justify-end gap-2">
+                          <span
+                            className={`tabular-nums ${mixReelCn(row.reel, row.cible)}`}
+                          >
+                            {formatPct(row.reel)}
+                          </span>
+                          {mixReelDiff(row.reel, row.cible) && (
                             <span
-                              className={`tabular-nums ${mixReelCn(reel, cible)}`}
+                              className={`text-[11px] tabular-nums ${
+                                row.reel > row.cible
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : "text-destructive"
+                              }`}
                             >
-                              {getMixReel(categorie.id).toFixed(1)} %
+                              {mixReelDiff(row.reel, row.cible)}
                             </span>
-                            {mixReelDiff(reel, cible) && (
-                              <span
-                                className={`text-[11px] tabular-nums ${
-                                  reel > cible
-                                    ? "text-emerald-600 dark:text-emerald-400"
-                                    : "text-destructive"
-                                }`}
-                              >
-                                {mixReelDiff(reel, cible)}
-                              </span>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
                 )}
               </TableBody>
               {categoriesCarte.length > 0 && (
@@ -439,15 +463,16 @@ export default function SimulateurCartePage() {
                             {coutMatiere.toFixed(2).replace(".", ",")} €
                           </TableCell>
                           <TableCell className="text-right">
-                            <Input
+                            <input
                               type="number"
-                              value={recette.volumeHebdo || 0}
+                              min={0}
+                              value={recette.volumeHebdo || ""}
                               onChange={(e) =>
                                 updateRecette(recette.id, {
-                                  volumeHebdo: Number(e.target.value),
+                                  volumeHebdo: Number(e.target.value) || 0,
                                 })
                               }
-                              className="w-24 text-right text-sm font-medium tabular-nums"
+                              className="w-24 rounded-md border border-input bg-background px-2 py-1 text-right text-sm font-medium text-foreground tabular-nums focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-colors"
                               data-ocid={`labo-recettes.volume.input.${idx + 1}`}
                               aria-label={`Volume semaine — ${recette.nom}`}
                             />
@@ -468,7 +493,7 @@ export default function SimulateurCartePage() {
                         Totaux semaine
                       </TableCell>
                       <TableCell className="text-right tabular-nums font-semibold text-foreground">
-                        {volumeTotalGlobal.toLocaleString("fr-FR")} couverts
+                        {totalVolumeHebdo.toLocaleString("fr-FR")} couverts
                       </TableCell>
                       <TableCell className="text-right pr-6 tabular-nums font-semibold text-foreground">
                         {formatEur(caHebdo - totalCoutMatiereHebdo)}
@@ -493,7 +518,7 @@ export default function SimulateurCartePage() {
                     Couverts / semaine
                   </p>
                   <p className="text-xl font-bold tabular-nums text-foreground font-display">
-                    {volumeTotalGlobal.toLocaleString("fr-FR")}
+                    {totalVolumeHebdo.toLocaleString("fr-FR")}
                   </p>
                 </div>
               </div>
@@ -533,7 +558,7 @@ export default function SimulateurCartePage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {categoriesCarte.length === 0 ? (
+                {categorieStats.length === 0 ? (
                   <TableRow>
                     <TableCell
                       colSpan={3}
@@ -543,52 +568,44 @@ export default function SimulateurCartePage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  categoriesCarte.map((categorie, idx) => {
-                    const volumeTotal = recettes
-                      .filter((r) => r.categorieId === categorie.id)
-                      .reduce(
-                        (acc, r) => acc + (Number(r.volumeHebdo) || 0),
-                        0,
-                      );
-                    return (
-                      <TableRow
-                        key={categorie.id}
-                        className="border-border hover:bg-muted/40 transition-colors"
-                        data-ocid={`labo-recettes.categories.item.${idx + 1}`}
-                      >
-                        <TableCell className="pl-6 font-medium text-foreground">
-                          {categorie.nom}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums text-foreground">
-                          {volumeTotal.toLocaleString("fr-FR")}
-                        </TableCell>
-                        <TableCell className="text-right pr-6">
-                          <span
-                            className={`tabular-nums font-medium ${
-                              volumeTotal === 0
-                                ? "text-muted-foreground"
-                                : "text-foreground"
-                            }`}
-                          >
-                            {getMixReel(categorie.id).toFixed(1)} %
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
+                  categorieStats.map((stat, idx) => (
+                    <TableRow
+                      key={stat.id}
+                      className="border-border hover:bg-muted/40 transition-colors"
+                      data-ocid={`labo-recettes.categories.item.${idx + 1}`}
+                    >
+                      <TableCell className="pl-6 font-medium text-foreground">
+                        {stat.nom}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-foreground">
+                        {stat.volumeTotal.toLocaleString("fr-FR")}
+                      </TableCell>
+                      <TableCell className="text-right pr-6">
+                        <span
+                          className={`tabular-nums font-medium ${
+                            stat.volumeTotal === 0
+                              ? "text-muted-foreground"
+                              : "text-foreground"
+                          }`}
+                        >
+                          {formatPct(stat.mixReel)}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))
                 )}
               </TableBody>
-              {categoriesCarte.length > 0 && (
+              {categorieStats.length > 0 && (
                 <TableFooter>
                   <TableRow className="border-border bg-muted/30 hover:bg-muted/40">
                     <TableCell className="pl-6 font-semibold text-foreground">
                       Total
                     </TableCell>
                     <TableCell className="text-right tabular-nums font-semibold text-foreground">
-                      {volumeTotalGlobal.toLocaleString("fr-FR")}
+                      {totalVolumeHebdo.toLocaleString("fr-FR")}
                     </TableCell>
                     <TableCell className="text-right pr-6 tabular-nums font-semibold text-foreground">
-                      {formatPct(volumeTotalGlobal === 0 ? 0 : 100)}
+                      {formatPct(totalVolumeHebdo === 0 ? 0 : 100)}
                     </TableCell>
                   </TableRow>
                 </TableFooter>

@@ -14,25 +14,6 @@ export interface RecipeIngredient {
   unit: string;
 }
 
-// ─── Recipe (generic) ────────────────────────────────────────────────────────
-export interface Recipe {
-  id: string;
-  name: string;
-  ingredients: RecipeIngredient[];
-  preparationTime?: number; // minutes
-  notes?: string;
-}
-
-// ─── MenuItem ────────────────────────────────────────────────────────────────
-export interface MenuItem {
-  id: string;
-  name: string;
-  recipeId?: string;
-  price: number;
-  category: string;
-  isAvailable: boolean;
-}
-
 // ─── IngredientFB — F&B ingrédient d'achat ───────────────────────────────────
 
 export type FamilleIngredient =
