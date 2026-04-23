@@ -18,6 +18,7 @@ export interface HypothesesBP {
   objectifCAannuel: number;
   joursOuvertureParSemaine: number;
   ticketMoyenCible: number;
+  margeCibleGlobale: number; // marge brute globale cible (%)
 }
 
 interface AppStore {
@@ -132,15 +133,52 @@ const DEFAULT_HYPOTHESES_BP: HypothesesBP = {
   objectifCAannuel: 500000,
   joursOuvertureParSemaine: 5,
   ticketMoyenCible: 20,
+  margeCibleGlobale: 70,
 };
 
 const DEFAULT_CATEGORIES_CARTE: CategorieCarte[] = [
-  { id: "cat_boissons", nom: "Boissons", mixCiblePct: 15 },
-  { id: "cat_snacking", nom: "Snacking", mixCiblePct: 15 },
-  { id: "cat_plats", nom: "Plats chauds", mixCiblePct: 30 },
-  { id: "cat_desserts", nom: "Desserts", mixCiblePct: 20 },
-  { id: "cat_acc", nom: "Accompagnements", mixCiblePct: 10 },
-  { id: "cat_formules", nom: "Formules", mixCiblePct: 10 },
+  {
+    id: "cat_boissons",
+    nom: "Boissons",
+    mixCiblePct: 15,
+    ticketMoyen: 3.5,
+    foodCostCible: 15,
+  },
+  {
+    id: "cat_snacking",
+    nom: "Snacking",
+    mixCiblePct: 15,
+    ticketMoyen: 5.5,
+    foodCostCible: 35,
+  },
+  {
+    id: "cat_plats",
+    nom: "Plats chauds",
+    mixCiblePct: 30,
+    ticketMoyen: 12.0,
+    foodCostCible: 32,
+  },
+  {
+    id: "cat_desserts",
+    nom: "Desserts",
+    mixCiblePct: 20,
+    ticketMoyen: 4.5,
+    foodCostCible: 28,
+  },
+  {
+    id: "cat_acc",
+    nom: "Accompagnements",
+    mixCiblePct: 10,
+    ticketMoyen: 3.0,
+    foodCostCible: 25,
+  },
+  {
+    id: "cat_formules",
+    nom: "Formules",
+    mixCiblePct: 10,
+    ticketMoyen: 14.0,
+    foodCostCible: 30,
+  },
 ];
 
 // ─── Selectors (pure helpers — use outside the store) ────────────────────────

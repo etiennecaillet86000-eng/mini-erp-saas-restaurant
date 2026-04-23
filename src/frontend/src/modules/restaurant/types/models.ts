@@ -39,6 +39,8 @@ export interface CategorieCarte {
   id: string;
   nom: string;
   mixCiblePct: number;
+  ticketMoyen: number; // ticket moyen HT cible pour cette catégorie (€)
+  foodCostCible: number; // food cost cible (%) pour cette catégorie
 }
 
 // ─── RecetteFB — Fiche Technique ─────────────────────────────────────────────

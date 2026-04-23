@@ -33,12 +33,6 @@ interface Hypotheses {
   tauxInflationCharges: number;
 }
 
-// Local-only simulation params (ticket moyen & food cost) keyed by category ID
-interface LocalCatParams {
-  ticketMoyen: number;
-  foodCost: number;
-}
-
 // ─── Données initiales ────────────────────────────────────────────────────────
 
 const HYPOTHESES_INITIALES: Hypotheses = {
@@ -46,18 +40,6 @@ const HYPOTHESES_INITIALES: Hypotheses = {
   tauxCroissanceCA: 5,
   tauxInflationCharges: 3,
 };
-
-// Default simulation params per store category ID
-const DEFAULT_LOCAL_PARAMS: Record<string, LocalCatParams> = {
-  cat_boissons: { ticketMoyen: 3.5, foodCost: 15 },
-  cat_snacking: { ticketMoyen: 5.5, foodCost: 35 },
-  cat_plats: { ticketMoyen: 12.0, foodCost: 32 },
-  cat_desserts: { ticketMoyen: 4.5, foodCost: 28 },
-  cat_acc: { ticketMoyen: 3.0, foodCost: 25 },
-  cat_formules: { ticketMoyen: 14.0, foodCost: 30 },
-};
-
-const DEFAULT_FALLBACK: LocalCatParams = { ticketMoyen: 5.0, foodCost: 30 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -123,10 +105,6 @@ function NumericInput({
 export default function BusinessPlanPage() {
   const [hyp, setHyp] = useState<Hypotheses>(HYPOTHESES_INITIALES);
 
-  // Local simulation params (ticketMoyen & foodCost) — keyed by store category ID
-  const [localParams, setLocalParams] =
-    useState<Record<string, LocalCatParams>>(DEFAULT_LOCAL_PARAMS);
-
   // ── Data from global store ───────────────────────────────────────────────────
   const salaries = useAppStore((s) => s.salaries);
   const fraisFixes = useAppStore((s) => s.fraisFixes);
@@ -151,28 +129,15 @@ export default function BusinessPlanPage() {
   const setHypField = (key: keyof Hypotheses, value: number) =>
     setHyp((h) => ({ ...h, [key]: value }));
 
-  const setLocalParam = (
-    catId: string,
-    key: keyof LocalCatParams,
-    value: number,
-  ) =>
-    setLocalParams((prev) => ({
-      ...prev,
-      [catId]: { ...(prev[catId] ?? DEFAULT_FALLBACK), [key]: value },
-    }));
-
   // Build the categories array that finance.ts functions expect
   const categoriesForCalc = useMemo(
     () =>
-      categoriesCarte.map((cat) => {
-        const params = localParams[cat.id] ?? DEFAULT_FALLBACK;
-        return {
-          mix: cat.mixCiblePct,
-          ticketMoyen: params.ticketMoyen,
-          foodCost: params.foodCost,
-        };
-      }),
-    [categoriesCarte, localParams],
+      categoriesCarte.map((cat) => ({
+        mix: cat.mixCiblePct,
+        ticketMoyen: cat.ticketMoyen || 0,
+        foodCost: cat.foodCostCible || 0,
+      })),
+    [categoriesCarte],
   );
 
   // ── Calcul du CR 5 ans ───────────────────────────────────────────────────────
@@ -461,8 +426,7 @@ export default function BusinessPlanPage() {
               <TableBody>
                 {/* Action 3: loop over store categoriesCarte — no local hardcoded list */}
                 {categoriesCarte.map((cat, i) => {
-                  const params = localParams[cat.id] ?? DEFAULT_FALLBACK;
-                  const margeResidue = 100 - params.foodCost;
+                  const margeResidue = 100 - (cat.foodCostCible || 0);
                   // Action 3: CA théorique = objectifCAannuel * mixCiblePct / 100
                   const caTheorique =
                     (objectifCAannuel * (cat.mixCiblePct || 0)) / 100;
@@ -494,40 +458,41 @@ export default function BusinessPlanPage() {
                       <TableCell className="text-right tabular-nums text-sm text-muted-foreground">
                         {caTheorique.toLocaleString("fr-FR")} €
                       </TableCell>
+                      {/* Action 2 (Phase 5.1): Ticket Moyen bound to store */}
                       <TableCell className="text-right">
                         <Input
                           type="number"
                           min={0}
                           step={0.1}
-                          value={params.ticketMoyen}
+                          value={cat.ticketMoyen || ""}
                           onChange={(e) =>
-                            setLocalParam(
-                              cat.id,
-                              "ticketMoyen",
-                              Number(e.target.value),
-                            )
+                            updateCategorie(cat.id, {
+                              ticketMoyen: Number(e.target.value),
+                            })
                           }
+                          onFocus={(e) => e.target.select()}
                           className="h-8 w-24 text-right tabular-nums ml-auto"
                           data-ocid={`business-plan.ticket.input.${i + 1}`}
                         />
                       </TableCell>
+                      {/* Action 2 (Phase 5.1): Food Cost Cible bound to store */}
                       <TableCell className="text-right">
                         <Input
                           type="number"
                           min={0}
                           max={100}
-                          value={params.foodCost}
+                          value={cat.foodCostCible || ""}
                           onChange={(e) =>
-                            setLocalParam(
-                              cat.id,
-                              "foodCost",
-                              Number(e.target.value),
-                            )
+                            updateCategorie(cat.id, {
+                              foodCostCible: Number(e.target.value),
+                            })
                           }
+                          onFocus={(e) => e.target.select()}
                           className="h-8 w-20 text-right tabular-nums ml-auto"
                           data-ocid={`business-plan.foodcost.input.${i + 1}`}
                         />
                       </TableCell>
+                      {/* Action 2 (Phase 5.1): Marge Cible auto-calculée = 100 - Food Cost Cible */}
                       <TableCell className="pr-6 text-right tabular-nums">
                         <span
                           className={
@@ -538,7 +503,7 @@ export default function BusinessPlanPage() {
                                 : "text-amber-600"
                           }
                         >
-                          {margeResidue.toFixed(0)} %
+                          {margeResidue.toFixed(1)} %
                         </span>
                       </TableCell>
                     </TableRow>

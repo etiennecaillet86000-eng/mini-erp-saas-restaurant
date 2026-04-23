@@ -184,6 +184,9 @@ export default function SimulateurCartePage() {
   const resetVolumes = useAppStore((s) => s.resetVolumes);
   // Phase 4.2 — BP hypotheses for coherence indicator
   const hypothesesBP = useAppStore((s) => s.hypothesesBP);
+  // Phase 5.1 — Marge cible globale from BP
+  const margeCibleGlobale =
+    useAppStore((s) => s.hypothesesBP.margeCibleGlobale) || 70;
 
   // ── Central stats hook (volumes, CA, Mix Réel per category) ──────────────
   const stats = useStatsSimulateur();
@@ -449,7 +452,7 @@ export default function SimulateurCartePage() {
                         Vol. / semaine
                       </TableHead>
                       <TableHead className="text-right pr-6 font-semibold text-foreground">
-                        Marge Brute
+                        Marge brute (€)
                       </TableHead>
                     </TableRow>
                   </TableHeader>
@@ -566,6 +569,41 @@ export default function SimulateurCartePage() {
             positive={!margeAlert && totalCA > 0}
             data-ocid="labo-recettes.kpi-marge.card"
           />
+          {/* Phase 5.1 — Marge Simulation KPI avec alerte couleur */}
+          <Card
+            className="flex-1 border-border bg-card"
+            data-ocid="labo-recettes.kpi-marge-simulation.card"
+          >
+            <CardContent className="pt-5 pb-4 px-5">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-1">
+                Marge Simulation
+              </p>
+              <div className="flex items-center gap-2">
+                {stats.margeReelleGlobale < margeCibleGlobale - 5 ? (
+                  <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0" />
+                ) : stats.margeReelleGlobale < margeCibleGlobale ? (
+                  <AlertTriangle className="h-5 w-5 text-orange-500 flex-shrink-0" />
+                ) : (
+                  <TrendingUp className="h-5 w-5 text-emerald-500 flex-shrink-0" />
+                )}
+                <span
+                  className={`text-2xl font-bold font-display tabular-nums ${
+                    stats.margeReelleGlobale < margeCibleGlobale - 5
+                      ? "text-red-600"
+                      : stats.margeReelleGlobale < margeCibleGlobale
+                        ? "text-orange-500"
+                        : "text-emerald-600"
+                  }`}
+                  data-ocid="labo-recettes.kpi-marge-simulation.value"
+                >
+                  {stats.margeReelleGlobale.toFixed(1)} %
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Cible : {margeCibleGlobale} %
+              </p>
+            </CardContent>
+          </Card>
         </div>
         {margeAlert && (
           <div

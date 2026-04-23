@@ -365,6 +365,7 @@ export default function RecettesPage() {
       updateRecette(form.id, {
         nom: form.nom.trim(),
         categorie: (form.categorie || "Plats chauds") as CategorieRecette,
+        categorieId: form.categorie || "cat_plats",
         prixVenteHT: Number.parseFloat(form.prixVenteHT) || 0,
         tva: Number.parseFloat(form.tva) || 0,
         ingredients: form.lignes,

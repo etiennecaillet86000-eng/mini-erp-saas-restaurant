@@ -34,29 +34,27 @@ const fmt = (n: number) =>
 
 const fmtPct = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(1)} %`;
 
-// ─── Mix delta color logic ─────────────────────────────────────────────────
+// ─── Delta color: GREEN if delta >= 0, RED if delta < 0 ───────────────────────
 
-function getMixColorClasses(absDelta: number): string {
-  if (absDelta <= 2) return "text-green-600 bg-green-50";
-  if (absDelta <= 5) return "text-amber-600 bg-amber-50";
-  return "text-red-600 bg-red-50";
+function getDeltaColor(delta: number): string {
+  if (Math.abs(delta) < 0.001) return "text-muted-foreground";
+  return delta >= 0 ? "text-green-600" : "text-red-600";
 }
 
-function MixDeltaBadge({ delta }: { delta: number }) {
-  const absDelta = Math.abs(delta);
-  const colorCn = getMixColorClasses(absDelta);
+// ─── Inline delta badge (for mix/margin % columns) ────────────────────────────
+
+function DeltaPctBadge({ delta }: { delta: number }) {
+  const colorCn = getDeltaColor(delta);
   const sign = delta > 0 ? "+" : "";
   return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${colorCn}`}
-    >
+    <span className={`tabular-nums font-semibold text-sm ${colorCn}`}>
       {sign}
       {delta.toFixed(1)} %
     </span>
   );
 }
 
-// ─── KPI Delta badge (CA / EBE) ────────────────────────────────────────────
+// ─── KPI Delta badge (currency + pct) ─────────────────────────────────────────
 
 function DeltaBadge({ delta, pct }: { delta: number; pct: number }) {
   if (Math.abs(delta) < 0.01) {
@@ -91,21 +89,19 @@ function DeltaBadge({ delta, pct }: { delta: number; pct: number }) {
   );
 }
 
-// ─── KPI Card ─────────────────────────────────────────────────────────────────
+// ─── Generic KPI Card ─────────────────────────────────────────────────────────
 
 function KpiCard({
   title,
-  cible,
-  reel,
-  delta,
-  pct,
+  cibleLabel,
+  reelLabel,
+  deltaNode,
   ocid,
 }: {
   title: string;
-  cible: number;
-  reel: number;
-  delta: number;
-  pct: number;
+  cibleLabel: string;
+  reelLabel: string;
+  deltaNode: React.ReactNode;
   ocid: string;
 }) {
   return (
@@ -117,13 +113,13 @@ function KpiCard({
         <div className="flex items-end justify-between gap-2">
           <div>
             <p className="text-2xl font-bold font-display tabular-nums text-foreground">
-              {fmt(reel)}
+              {reelLabel}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Cible : {fmt(cible)}
+              Cible : {cibleLabel}
             </p>
           </div>
-          <DeltaBadge delta={delta} pct={pct} />
+          {deltaNode}
         </div>
       </CardContent>
     </Card>
@@ -136,39 +132,48 @@ export default function BusinessPlanReelPage() {
   // ── Hook de calcul centralisé ──────────────────────────────────────────────
   const stats = useStatsSimulateur();
 
-  // ── Données du store ───────────────────────────────────────────────────────
+  // ── Sélecteurs Zustand individuels ────────────────────────────────────────
   const hypothesesBP = useAppStore((s) => s.hypothesesBP);
   const salaries = useAppStore((s) => s.salaries);
   const fraisFixes = useAppStore((s) => s.fraisFixes);
 
-  // ── Calculs dérivés (annuels) ──────────────────────────────────────────────
+  // ── Calculs cibles depuis le store (ACTION 1) ─────────────────────────────
   const semainesOuverture = hypothesesBP.semainesOuverture || 48;
+  const caHebdoCible =
+    (hypothesesBP.objectifCAannuel || 0) / (semainesOuverture || 1);
+  const volumeCible = caHebdoCible / (hypothesesBP.ticketMoyenCible || 1);
+  const margeCible = hypothesesBP.margeCibleGlobale ?? 70;
 
+  // ── Valeurs réelles depuis le hook ────────────────────────────────────────
   const caHebdoReel = stats.caHebdoGlobal;
-  const caAnnuelReel = caHebdoReel * semainesOuverture;
+  const volumeReel = stats.volumeTotalGlobal;
+  const margeReelle = stats.margeReelleGlobale;
 
-  // CA Cible basé sur les hypothèses du store (couverts/jour × jours/an × ticket moyen 12 €)
-  const caAnnuelCible =
-    hypothesesBP.couvertsParJour * hypothesesBP.joursOuvertureAn * 12;
+  // ── Deltas KPI (Réel − Cible) ─────────────────────────────────────────────
+  const deltaCA = caHebdoReel - caHebdoCible;
+  const deltaVolume = volumeReel - volumeCible;
+  const deltaVolumePct =
+    volumeCible > 0 ? (deltaVolume / volumeCible) * 100 : 0;
+  const deltaMarge = margeReelle - margeCible;
+
+  // ── Calculs annuels pour Section A (Compte de résultat) ───────────────────
+  const caAnnuelReel = caHebdoReel * semainesOuverture;
+  const caAnnuelCible = hypothesesBP.objectifCAannuel || 0;
 
   const totalMasseSalarialeAn = selectTotalMasseSalarialeAnnuelle(salaries);
   const totalFraisFixesAn = selectTotalFraisFixesAnnuels(fraisFixes);
   const totalChargesAn = totalMasseSalarialeAn + totalFraisFixesAn;
 
-  // Marges
   const ebeReel = caAnnuelReel - totalChargesAn;
   const ebeCible = caAnnuelCible - totalChargesAn;
   const pctEbeReel = caAnnuelReel > 0 ? (ebeReel / caAnnuelReel) * 100 : 0;
   const pctEbeCible = caAnnuelCible > 0 ? (ebeCible / caAnnuelCible) * 100 : 0;
 
-  // Deltas
-  const deltaCA = caAnnuelReel - caAnnuelCible;
-  const deltaCAPct = caAnnuelCible > 0 ? (deltaCA / caAnnuelCible) * 100 : 0;
   const deltaEBE = ebeReel - ebeCible;
   const deltaEBEPct =
     Math.abs(ebeCible) > 0 ? (deltaEBE / Math.abs(ebeCible)) * 100 : 0;
 
-  // Seuil de rentabilité hebdo (charges / nb semaines)
+  // Seuil de rentabilité hebdo
   const seuilRentabiliteHebdo =
     semainesOuverture > 0 ? totalChargesAn / semainesOuverture : 0;
   const deltaSeuilReel = caHebdoReel - seuilRentabiliteHebdo;
@@ -176,8 +181,6 @@ export default function BusinessPlanReelPage() {
     seuilRentabiliteHebdo > 0
       ? (deltaSeuilReel / seuilRentabiliteHebdo) * 100
       : 0;
-
-  console.log("[DEBUG BP Réel] statsParCategorie:", stats.statsParCategorie);
 
   return (
     <div className="space-y-6" data-ocid="bp-reel.page">
@@ -194,45 +197,99 @@ export default function BusinessPlanReelPage() {
         </div>
       </div>
 
-      {/* ── KPI Cards ──────────────────────────────────────────────────────── */}
+      {/* ── KPI Cards (ACTION 1) ────────────────────────────────────────────── */}
       <div
-        className="grid grid-cols-1 gap-4 sm:grid-cols-3"
+        className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
         data-ocid="bp-reel.kpi.section"
       >
+        {/* CA Hebdomadaire */}
         <KpiCard
-          title="CA Annuel Réel"
-          cible={caAnnuelCible}
-          reel={caAnnuelReel}
-          delta={deltaCA}
-          pct={deltaCAPct}
-          ocid="bp-reel.ca-annuel.card"
+          title="CA Hebdo"
+          cibleLabel={fmt(caHebdoCible)}
+          reelLabel={fmt(caHebdoReel)}
+          deltaNode={
+            <Badge
+              variant="outline"
+              className={`gap-1 tabular-nums ${
+                deltaCA >= 0
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                  : "border-destructive/40 bg-destructive/10 text-destructive"
+              }`}
+            >
+              {deltaCA >= 0 ? (
+                <ArrowUp className="h-3 w-3" />
+              ) : (
+                <ArrowDown className="h-3 w-3" />
+              )}
+              {fmt(deltaCA)}
+            </Badge>
+          }
+          ocid="bp-reel.ca-hebdo.card"
         />
+
+        {/* Volume Clients / semaine */}
         <KpiCard
-          title="EBE Annuel Réel"
-          cible={ebeCible}
-          reel={ebeReel}
-          delta={deltaEBE}
-          pct={deltaEBEPct}
-          ocid="bp-reel.ebe.card"
+          title="Volume Clients / semaine"
+          cibleLabel={`${volumeCible.toFixed(0)} clients`}
+          reelLabel={`${volumeReel} clients`}
+          deltaNode={
+            <span
+              className={`text-sm font-semibold tabular-nums ${getDeltaColor(deltaVolume)}`}
+            >
+              {deltaVolume >= 0 ? "+" : ""}
+              {deltaVolume.toFixed(0)}
+              {deltaVolumePct !== 0 && (
+                <span className="text-xs ml-1">
+                  ({deltaVolumePct >= 0 ? "+" : ""}
+                  {deltaVolumePct.toFixed(1)} %)
+                </span>
+              )}
+            </span>
+          }
+          ocid="bp-reel.volume.card"
         />
-        <Card data-ocid="bp-reel.seuil.card">
-          <CardContent className="pt-5 space-y-3">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Seuil de Rentabilité / semaine
-            </p>
-            <div className="flex items-end justify-between gap-2">
-              <div>
-                <p className="text-2xl font-bold font-display tabular-nums text-foreground">
-                  {fmt(seuilRentabiliteHebdo)}
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  CA réel/semaine : {fmt(caHebdoReel)}
-                </p>
-              </div>
-              <DeltaBadge delta={deltaSeuilReel} pct={deltaSeuilPct} />
-            </div>
-          </CardContent>
-        </Card>
+
+        {/* Marge Globale */}
+        <KpiCard
+          title="Marge Globale (%)"
+          cibleLabel={`${margeCible.toFixed(1)} %`}
+          reelLabel={`${margeReelle.toFixed(1)} %`}
+          deltaNode={
+            <span
+              className={`text-sm font-semibold tabular-nums ${getDeltaColor(deltaMarge)}`}
+            >
+              {deltaMarge >= 0 ? "+" : ""}
+              {deltaMarge.toFixed(1)} %
+            </span>
+          }
+          ocid="bp-reel.marge.card"
+        />
+
+        {/* Seuil de Rentabilité */}
+        <KpiCard
+          title="Seuil Rentabilité / semaine"
+          cibleLabel={fmt(seuilRentabiliteHebdo)}
+          reelLabel={fmt(caHebdoReel)}
+          deltaNode={
+            <Badge
+              variant="outline"
+              className={`gap-1 tabular-nums ${
+                deltaSeuilReel >= 0
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                  : "border-destructive/40 bg-destructive/10 text-destructive"
+              }`}
+            >
+              {deltaSeuilReel >= 0 ? (
+                <ArrowUp className="h-3 w-3" />
+              ) : (
+                <ArrowDown className="h-3 w-3" />
+              )}
+              {fmt(deltaSeuilReel)} ({deltaSeuilPct >= 0 ? "+" : ""}
+              {deltaSeuilPct.toFixed(1)} %)
+            </Badge>
+          }
+          ocid="bp-reel.seuil.card"
+        />
       </div>
 
       {/* ── Compte de Résultat Hebdo Réel ──────────────────────────────────── */}
@@ -376,7 +433,15 @@ export default function BusinessPlanReelPage() {
                     {fmt(caAnnuelReel)}
                   </TableCell>
                   <TableCell className="text-right pr-6">
-                    <DeltaBadge delta={deltaCA} pct={deltaCAPct} />
+                    <DeltaBadge
+                      delta={caAnnuelReel - caAnnuelCible}
+                      pct={
+                        caAnnuelCible > 0
+                          ? ((caAnnuelReel - caAnnuelCible) / caAnnuelCible) *
+                            100
+                          : 0
+                      }
+                    />
                   </TableCell>
                 </TableRow>
                 <TableRow data-ocid="bp-reel.comparatif.ebe.row">
@@ -404,41 +469,87 @@ export default function BusinessPlanReelPage() {
                   <TableCell className="pr-6" />
                 </TableRow>
 
+                {/* ── Marge Globale ── */}
+                <TableRow data-ocid="bp-reel.comparatif.marge.row">
+                  <TableCell className="pl-6 font-medium">
+                    Marge Brute Globale (%)
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {margeCible.toFixed(1)} %
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    <span
+                      className={`font-semibold ${margeReelle >= margeCible ? "text-green-600" : "text-red-600"}`}
+                    >
+                      {margeReelle.toFixed(1)} %
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right pr-6">
+                    <DeltaPctBadge delta={deltaMarge} />
+                  </TableCell>
+                </TableRow>
+
                 {/* ── Séparateur Mix Produit ── */}
                 <TableRow className="bg-muted/30">
                   <TableCell
                     colSpan={4}
                     className="pl-6 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
                   >
-                    Mix Produit par Catégorie
+                    Mix et Marges par Catégorie
                   </TableCell>
                 </TableRow>
 
-                {/* ── Lignes Mix par catégorie (dynamiques) ── */}
+                {/* ── Sous-entête catégorie ── */}
+                <TableRow className="bg-muted/10 hover:bg-muted/10">
+                  <TableCell className="pl-6 text-xs text-muted-foreground font-medium">
+                    Catégorie
+                  </TableCell>
+                  <TableCell className="text-right text-xs text-muted-foreground font-medium">
+                    Mix Cible / Marge Cible
+                  </TableCell>
+                  <TableCell className="text-right text-xs text-muted-foreground font-medium">
+                    Mix Réel / Marge Réelle
+                  </TableCell>
+                  <TableCell className="text-right pr-6 text-xs text-muted-foreground font-medium">
+                    Delta Mix
+                  </TableCell>
+                </TableRow>
+
+                {/* ── Lignes par catégorie (ACTION 2 + ACTION 3) ── */}
                 {stats.statsParCategorie.map((cat, i) => {
-                  const delta = cat.mixReelPct - cat.mixCiblePct;
-                  const absDelta = Math.abs(delta);
-                  const mixReelColorCn = getMixColorClasses(absDelta);
+                  const mixDelta = cat.mixReelPct - cat.mixCiblePct;
+                  // Marge Cible = 100 - foodCostCible (from store via statsParCategorie)
+                  const margeCibleCat =
+                    cat.foodCostCible !== undefined
+                      ? 100 - cat.foodCostCible
+                      : null;
                   return (
                     <TableRow
                       key={cat.id}
                       data-ocid={`bp-reel.comparatif.mix.item.${i + 1}`}
                     >
                       <TableCell className="pl-6 font-medium">
-                        Mix {cat.nom} (%)
+                        {cat.nom}
                       </TableCell>
-                      <TableCell className="text-right tabular-nums text-muted-foreground">
-                        {cat.mixCiblePct.toFixed(1)} %
+                      <TableCell className="text-right tabular-nums">
+                        <span className="text-muted-foreground">
+                          {cat.mixCiblePct.toFixed(1)} %
+                        </span>
+                        {margeCibleCat !== null && (
+                          <span className="block text-xs text-muted-foreground">
+                            Marge : {margeCibleCat.toFixed(1)} %
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         <span
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${mixReelColorCn}`}
+                          className={`font-semibold ${getDeltaColor(mixDelta)}`}
                         >
                           {cat.mixReelPct.toFixed(1)} %
                         </span>
                       </TableCell>
                       <TableCell className="text-right pr-6">
-                        <MixDeltaBadge delta={delta} />
+                        <DeltaPctBadge delta={mixDelta} />
                       </TableCell>
                     </TableRow>
                   );
@@ -478,37 +589,49 @@ export default function BusinessPlanReelPage() {
                 <TableHeader>
                   <TableRow className="bg-muted/40 hover:bg-muted/40">
                     <TableHead className="pl-6">Catégorie</TableHead>
-                    <TableHead className="text-right">Mix Cible</TableHead>
-                    <TableHead className="text-right">Mix Réel</TableHead>
-                    <TableHead className="text-right pr-6">Delta</TableHead>
+                    <TableHead className="text-right">Mix Cible (%)</TableHead>
+                    <TableHead className="text-right">
+                      Marge Cible (%)
+                    </TableHead>
+                    <TableHead className="text-right">Mix Réel (%)</TableHead>
+                    <TableHead className="text-right pr-6">Delta Mix</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {stats.statsParCategorie.map((cat, i) => {
-                    const delta = cat.mixReelPct - cat.mixCiblePct;
-                    const mixReelColor =
-                      Math.abs(delta) > 5 ? "text-red-600 font-semibold" : "";
-                    const deltaColor =
-                      Math.abs(delta) <= 2
-                        ? "text-green-600"
-                        : Math.abs(delta) <= 5
-                          ? "text-amber-600"
-                          : "text-red-600";
+                    const mixDelta = cat.mixReelPct - cat.mixCiblePct;
+                    // ACTION 2: Marge Cible = 100 - cat.foodCostCible from store
+                    const margeCibleCat =
+                      cat.foodCostCible !== undefined
+                        ? 100 - cat.foodCostCible
+                        : 0;
                     return (
                       <TableRow
                         key={cat.id}
                         data-ocid={`bp-reel.mix.item.${i + 1}`}
                       >
-                        <TableCell className="pl-6">{cat.nom}</TableCell>
-                        <TableCell className="text-right">
-                          {cat.mixCiblePct.toFixed(1)}%
+                        <TableCell className="pl-6 font-medium">
+                          {cat.nom}
                         </TableCell>
-                        <TableCell className={`text-right ${mixReelColor}`}>
-                          {cat.mixReelPct.toFixed(1)}%
+                        {/* Mix Cible — from store via statsParCategorie */}
+                        <TableCell className="text-right tabular-nums text-muted-foreground">
+                          {cat.mixCiblePct.toFixed(1)} %
                         </TableCell>
-                        <TableCell className={`text-right pr-6 ${deltaColor}`}>
-                          {delta > 0 ? "+" : ""}
-                          {delta.toFixed(1)}%
+                        {/* Marge Cible — from store: 100 - foodCostCible */}
+                        <TableCell className="text-right tabular-nums text-muted-foreground">
+                          {margeCibleCat.toFixed(1)} %
+                        </TableCell>
+                        {/* Mix Réel */}
+                        <TableCell className="text-right tabular-nums">
+                          <span
+                            className={`font-semibold ${getDeltaColor(mixDelta)}`}
+                          >
+                            {cat.mixReelPct.toFixed(1)} %
+                          </span>
+                        </TableCell>
+                        {/* Delta — ACTION 3: GREEN >= 0, RED < 0 */}
+                        <TableCell className="text-right pr-6">
+                          <DeltaPctBadge delta={mixDelta} />
                         </TableCell>
                       </TableRow>
                     );
