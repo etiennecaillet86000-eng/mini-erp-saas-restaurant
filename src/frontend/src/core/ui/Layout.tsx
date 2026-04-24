@@ -15,6 +15,10 @@ const PATH_TITLES: Record<string, string> = {
   "/cloture-journee": "Clôture Journée",
   "/ingredients": "Ingrédients",
   "/recettes": "Fiches Techniques",
+  "/associes": "Associés",
+  "/emprunts": "Emprunts Bancaires",
+  "/amortissements": "Amortissements",
+  "/comptabilite": "Comptabilité",
 };
 
 interface LayoutProps {

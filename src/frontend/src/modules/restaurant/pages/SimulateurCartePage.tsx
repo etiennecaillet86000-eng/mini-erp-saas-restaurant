@@ -43,16 +43,18 @@ import {
   calculerMargeRecette,
 } from "../utils/calculations";
 
-// ─── Category dot colours (ACTION 3) ─────────────────────────────────────────
+// ─── Dynamic palette for category dot colours ────────────────────────────────
 
-const CATEGORY_DOT_COLORS: Record<string, string> = {
-  cat_boissons: "bg-blue-500",
-  cat_snacking: "bg-amber-400",
-  cat_plats: "bg-red-500",
-  cat_desserts: "bg-pink-400",
-  cat_acc: "bg-green-500",
-  cat_formules: "bg-indigo-500",
-};
+const PALETTE = [
+  "bg-blue-500",
+  "bg-amber-400",
+  "bg-red-500",
+  "bg-pink-400",
+  "bg-green-500",
+  "bg-indigo-500",
+  "bg-teal-400",
+  "bg-purple-500",
+];
 
 // Colour tokens per category (badge pills in Catégorie column)
 const CATEGORIE_COLORS: Record<string, string> = {
@@ -488,11 +490,18 @@ export default function SimulateurCartePage() {
                             className="border-border hover:bg-muted/40 transition-colors"
                             data-ocid={`labo-recettes.recette.item.${idx + 1}`}
                           >
-                            {/* ACTION 3: dot + name */}
+                            {/* Dynamic palette dot */}
                             <TableCell className="pl-6 font-medium text-foreground">
                               <span className="flex items-center gap-0">
                                 <span
-                                  className={`inline-block w-3 h-3 rounded-full mr-2 flex-shrink-0 ${CATEGORY_DOT_COLORS[recette.categorieId] ?? "bg-gray-300"}`}
+                                  className={`inline-block w-3 h-3 rounded-full mr-2 flex-shrink-0 ${(() => {
+                                    const idx = categoriesCarte.findIndex(
+                                      (c) => c.id === recette.categorieId,
+                                    );
+                                    return idx === -1
+                                      ? "bg-gray-400"
+                                      : PALETTE[idx % PALETTE.length];
+                                  })()}`}
                                 />
                                 {recette.nom}
                               </span>

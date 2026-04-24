@@ -2,11 +2,15 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import {
+  BarChart3,
+  Calculator,
   CalendarDays,
   ChefHat,
   ClipboardList,
   CreditCard,
   FlaskConical,
+  Handshake,
+  Landmark,
   PackageOpen,
   Settings,
   TrendingUp,
@@ -85,6 +89,11 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Salariés",
         icon: <Users className="h-4 w-4" />,
       },
+      {
+        path: "/associes",
+        label: "Associés",
+        icon: <Handshake className="h-4 w-4" />,
+      },
     ],
   },
   {
@@ -94,6 +103,21 @@ const NAV_SECTIONS: NavSection[] = [
         path: "/frais-fixes",
         label: "Charges Fixes",
         icon: <CreditCard className="h-4 w-4" />,
+      },
+      {
+        path: "/emprunts",
+        label: "Emprunts",
+        icon: <Landmark className="h-4 w-4" />,
+      },
+      {
+        path: "/amortissements",
+        label: "Amortissements",
+        icon: <BarChart3 className="h-4 w-4" />,
+      },
+      {
+        path: "/comptabilite",
+        label: "Comptabilité",
+        icon: <Calculator className="h-4 w-4" />,
       },
     ],
   },

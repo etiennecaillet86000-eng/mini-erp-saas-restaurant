@@ -51,6 +51,7 @@ export interface Salarie {
   typeContrat: TypeContrat;
   heuresHebdo: number;
   salaireNet: number;
+  salaireBrut?: number;
   chargesPatronales: number;
   coutTotalEmployeur: number;
 }

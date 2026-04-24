@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -26,7 +27,7 @@ import {
 import { useAppStore } from "@/core/store/useAppStore";
 import type { Salarie, TypeContrat } from "@/core/types/models";
 import { Pencil, Plus, Trash2, Users } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 const CONTRAT_OPTIONS: TypeContrat[] = [
   "CDI",
@@ -51,6 +52,7 @@ const emptyForm = (): Omit<Salarie, "id"> => ({
   typeContrat: "CDI",
   heuresHebdo: 35,
   salaireNet: 0,
+  salaireBrut: 0,
   chargesPatronales: 0,
   coutTotalEmployeur: 0,
 });
@@ -59,6 +61,37 @@ export default function SalariesPage() {
   // ── Global store (source of truth) ──────────────────────────────────────────
   const salaries = useAppStore((s) => s.salaries);
   const setSalaries = useAppStore((s) => s.setSalaries);
+  const hypothesesBP = useAppStore((s) => s.hypothesesBP);
+  const tauxChargesSalariales =
+    useAppStore((s) => s.hypothesesBP.tauxChargesSalariales) ?? 22;
+  const tauxChargesPatronales =
+    useAppStore((s) => s.hypothesesBP.tauxChargesPatronales) ?? 42;
+
+  // ── KPI Dashboard calculations ───────────────────────────────────────────────
+  const masseSalarialeMensuelle = useMemo(
+    () => salaries.reduce((sum, s) => sum + (s.coutTotalEmployeur ?? 0), 0),
+    [salaries],
+  );
+  const masseSalarialeAnnuelle = masseSalarialeMensuelle * 12;
+  const objectifCAannuel = hypothesesBP?.objectifCAannuel ?? 0;
+  const ratioMasseSalariale = useMemo(() => {
+    if (!objectifCAannuel) return 0;
+    return (masseSalarialeAnnuelle / objectifCAannuel) * 100;
+  }, [masseSalarialeAnnuelle, objectifCAannuel]);
+
+  const ratioColorClass =
+    ratioMasseSalariale <= 35
+      ? "text-green-600"
+      : ratioMasseSalariale <= 40
+        ? "text-amber-500"
+        : "text-red-600";
+
+  const ratioLabel =
+    ratioMasseSalariale <= 35
+      ? { text: "Ratio sain", cls: "text-green-600" }
+      : ratioMasseSalariale <= 40
+        ? { text: "Zone de vigilance", cls: "text-amber-500" }
+        : { text: "Zone de danger", cls: "text-red-600" };
 
   // ── Local UI state ───────────────────────────────────────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -85,6 +118,7 @@ export default function SalariesPage() {
       typeContrat: s.typeContrat,
       heuresHebdo: s.heuresHebdo,
       salaireNet: s.salaireNet,
+      salaireBrut: s.salaireBrut ?? calcFromNet(s.salaireNet).salaireBrut,
       chargesPatronales: s.chargesPatronales,
       coutTotalEmployeur: s.coutTotalEmployeur,
     });
@@ -115,6 +149,18 @@ export default function SalariesPage() {
     value: Omit<Salarie, "id">[K],
   ) => setForm((f) => ({ ...f, [key]: value }));
 
+  /** Recalcule brut, charges patronales et coût total depuis le salaire net */
+  const calcFromNet = (net: number) => {
+    const brut = net / (1 - tauxChargesSalariales / 100);
+    const charges = brut * (tauxChargesPatronales / 100);
+    return {
+      salaireNet: net,
+      salaireBrut: Math.round(brut * 100) / 100,
+      chargesPatronales: Math.round(charges * 100) / 100,
+      coutTotalEmployeur: Math.round((brut + charges) * 100) / 100,
+    };
+  };
+
   const fmt = (n: number) =>
     new Intl.NumberFormat("fr-FR", {
       style: "currency",
@@ -142,6 +188,62 @@ export default function SalariesPage() {
           <Plus className="h-4 w-4" />
           Ajouter un salarié
         </Button>
+      </div>
+
+      {/* KPI Dashboard */}
+      <div
+        className="grid grid-cols-1 md:grid-cols-3 gap-4"
+        data-ocid="salaries.kpi.section"
+      >
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Masse Salariale Mensuelle
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-semibold text-foreground tabular-nums">
+              {masseSalarialeMensuelle.toLocaleString("fr-FR")} €
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Coût total employeur / mois
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Masse Salariale Annuelle
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-semibold text-foreground tabular-nums">
+              {masseSalarialeAnnuelle.toLocaleString("fr-FR")} €
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Projection sur 12 mois
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Ratio Masse Salariale (%)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p
+              className={`text-2xl font-semibold tabular-nums ${ratioColorClass}`}
+            >
+              {ratioMasseSalariale.toFixed(1)} %
+            </p>
+            <p className={`text-xs font-medium mt-1 ${ratioLabel.cls}`}>
+              {ratioLabel.text}
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Summary cards */}
@@ -342,21 +444,53 @@ export default function SalariesPage() {
                 type="number"
                 min={0}
                 value={form.salaireNet}
-                onChange={(e) => setField("salaireNet", Number(e.target.value))}
+                onChange={(e) => {
+                  const computed = calcFromNet(Number(e.target.value));
+                  setForm((f) => ({
+                    ...f,
+                    salaireNet: computed.salaireNet,
+                    salaireBrut: computed.salaireBrut,
+                    chargesPatronales: computed.chargesPatronales,
+                    coutTotalEmployeur: computed.coutTotalEmployeur,
+                  }));
+                }}
                 data-ocid="salaries.salaireNet.input"
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="sal-charges">Charges patronales (€)</Label>
+              <Label htmlFor="sal-brut">
+                Salaire brut (€){" "}
+                <span className="text-xs text-muted-foreground font-normal">
+                  calculé
+                </span>
+              </Label>
+              <Input
+                id="sal-brut"
+                type="text"
+                value={fmt(
+                  form.salaireBrut ?? calcFromNet(form.salaireNet).salaireBrut,
+                )}
+                readOnly
+                className="bg-muted/40 cursor-default"
+                data-ocid="salaries.salaireBrut.input"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="sal-charges">
+                Charges patronales (€){" "}
+                <span className="text-xs text-muted-foreground font-normal">
+                  calculées ({tauxChargesPatronales}%)
+                </span>
+              </Label>
               <Input
                 id="sal-charges"
-                type="number"
+                type="text"
                 min={0}
-                value={form.chargesPatronales}
-                onChange={(e) =>
-                  setField("chargesPatronales", Number(e.target.value))
-                }
+                value={fmt(form.chargesPatronales)}
+                readOnly
+                className="bg-muted/40 cursor-default"
                 data-ocid="salaries.chargesPatronales.input"
               />
             </div>
@@ -365,12 +499,11 @@ export default function SalariesPage() {
               <Label htmlFor="sal-cout">Coût total employeur (€)</Label>
               <Input
                 id="sal-cout"
-                type="number"
+                type="text"
                 min={0}
-                value={form.coutTotalEmployeur}
-                onChange={(e) =>
-                  setField("coutTotalEmployeur", Number(e.target.value))
-                }
+                value={fmt(form.coutTotalEmployeur)}
+                readOnly
+                className="bg-muted/40 cursor-default"
                 data-ocid="salaries.coutTotal.input"
               />
             </div>

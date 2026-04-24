@@ -20,9 +20,6 @@ import {
   calculerResultatJour,
 } from "../utils/operationsMath";
 
-// Food Cost théorique : constante locale (non stockée dans le store)
-const FOOD_COST_PCT = 32;
-
 function formatEur(value: number): string {
   return `${value.toLocaleString("fr-FR", {
     minimumFractionDigits: 2,
@@ -37,7 +34,9 @@ export default function OperationsPage() {
   // ── Data from global store ───────────────────────────────────────────────────
   const salaries = useAppStore((s) => s.salaries);
   const fraisFixes = useAppStore((s) => s.fraisFixes);
-  const joursOuvertureAn = useAppStore((s) => s.hypothesesBP.joursOuvertureAn);
+  const hypothesesBP = useAppStore((s) => s.hypothesesBP);
+  const joursOuvertureAn = hypothesesBP.joursOuvertureAn;
+  const foodCostPct = 100 - (hypothesesBP.margeCibleGlobale ?? 70);
 
   const totalFraisFixesAn = selectTotalFraisFixesAnnuels(fraisFixes);
   const totalMasseSalarialeAn = selectTotalMasseSalarialeAnnuelle(salaries);
@@ -50,7 +49,7 @@ export default function OperationsPage() {
 
   const resultatJour = calculerResultatJour(
     caJour,
-    FOOD_COST_PCT,
+    foodCostPct,
     pertesJour,
     pointMortJour,
   );
@@ -205,7 +204,7 @@ export default function OperationsPage() {
                 className="text-sm font-bold text-foreground tabular-nums"
                 data-ocid="operations.food_cost.display"
               >
-                {FOOD_COST_PCT} %
+                {foodCostPct} %
               </span>
             </div>
           </CardContent>
@@ -283,9 +282,9 @@ export default function OperationsPage() {
             <span className="text-right font-medium tabular-nums">
               + {formatEur(caJour)}
             </span>
-            <span>Coût matière ({FOOD_COST_PCT}%)</span>
+            <span>Coût matière ({foodCostPct}%)</span>
             <span className="text-right font-medium tabular-nums">
-              − {formatEur((caJour * FOOD_COST_PCT) / 100)}
+              − {formatEur((caJour * foodCostPct) / 100)}
             </span>
             <span>Pertes alimentaires</span>
             <span className="text-right font-medium tabular-nums">

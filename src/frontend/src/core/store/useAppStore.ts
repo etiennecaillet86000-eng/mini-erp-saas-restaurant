@@ -19,6 +19,50 @@ export interface HypothesesBP {
   joursOuvertureParSemaine: number;
   ticketMoyenCible: number;
   margeCibleGlobale: number; // marge brute globale cible (%)
+  tauxChargesSalariales: number; // taux charges salariales (%) — défaut 22
+  tauxChargesPatronales: number; // taux charges patronales (%) — défaut 42
+  statutJuridique: "SASU" | "SARL"; // statut juridique de la société — défaut SASU
+  tauxIS_bas: number; // taux IS réduit (%) — défaut 15
+  tauxIS_haut: number; // taux IS normal (%) — défaut 25
+  seuilIS: number; // seuil d'application IS (€) — défaut 42500
+  tauxCroissanceCA: number; // croissance annuelle du CA RÉEL (%) — défaut 3
+  tauxInflationCharges: number; // augmentation annuelle des charges RÉEL (%) — défaut 2
+  croissanceCA_BP: number; // croissance annuelle du CA BP (%) — défaut 3
+  inflationCharges_BP: number; // augmentation annuelle des charges BP (%) — défaut 2
+  pacteSocialActif: boolean; // Pacte Social — majore les charges personnel de 5% — défaut false
+  remunerationAssociesAnnuelle: number; // rémunération annuelle totale des associés (€) — défaut 0
+}
+
+export interface VenteJournaliere {
+  id: string;
+  date: string; // ISO date string
+  montant: number; // CA HT
+}
+
+export interface Associe {
+  id: string;
+  nom: string;
+  remunerationMensuelle: number;
+  apportInitial: number; // CCA
+  montantRembourse: number; // CCA
+}
+
+export interface Emprunt {
+  id: string;
+  nom: string;
+  capitalInitial: number;
+  tauxAnnuel: number; // en %, ex: 3.5 pour 3.5%
+  dureeMois: number;
+  dateDebut: string; // ISO date string
+}
+
+export interface Immobilisation {
+  id: string;
+  nom: string;
+  valeurAchatHT: number;
+  dureeAmortissementAns: number;
+  type: "linéaire" | "dérogatoire";
+  dateAchat: string; // ISO date string
 }
 
 interface AppStore {
@@ -29,6 +73,10 @@ interface AppStore {
   ingredients: IngredientFB[];
   recettes: RecetteFB[];
   categoriesCarte: CategorieCarte[];
+  associes: Associe[];
+  emprunts: Emprunt[];
+  immobilisations: Immobilisation[];
+  ventesJournalieres: VenteJournaliere[];
 
   // ── Actions ────────────────────────────────────────────────────────────────
   setSalaries: (salaries: Salarie[]) => void;
@@ -53,6 +101,25 @@ interface AppStore {
 
   // Bulk actions
   resetVolumes: () => void;
+
+  // Associés
+  addAssocie: (associe: Omit<Associe, "id">) => void;
+  updateAssocie: (id: string, updates: Partial<Omit<Associe, "id">>) => void;
+  removeAssocie: (id: string) => void;
+
+  // Emprunts
+  addEmprunt: (emprunt: Emprunt) => void;
+  updateEmprunt: (id: string, updates: Partial<Emprunt>) => void;
+  removeEmprunt: (id: string) => void;
+
+  // Immobilisations
+  addImmobilisation: (immobilisation: Immobilisation) => void;
+  updateImmobilisation: (id: string, updates: Partial<Immobilisation>) => void;
+  removeImmobilisation: (id: string) => void;
+
+  // Ventes Journalières
+  addVenteJournaliere: (vente: VenteJournaliere) => void;
+  removeVenteJournaliere: (id: string) => void;
 }
 
 // ─── Default data (mirrors Sprint 2 mock values) ─────────────────────────────
@@ -134,6 +201,18 @@ const DEFAULT_HYPOTHESES_BP: HypothesesBP = {
   joursOuvertureParSemaine: 5,
   ticketMoyenCible: 20,
   margeCibleGlobale: 70,
+  tauxChargesSalariales: 22,
+  tauxChargesPatronales: 42,
+  statutJuridique: "SASU",
+  tauxIS_bas: 15,
+  tauxIS_haut: 25,
+  seuilIS: 42500,
+  tauxCroissanceCA: 3,
+  tauxInflationCharges: 2,
+  croissanceCA_BP: 3,
+  inflationCharges_BP: 2,
+  pacteSocialActif: false,
+  remunerationAssociesAnnuelle: 0,
 };
 
 const DEFAULT_CATEGORIES_CARTE: CategorieCarte[] = [
@@ -196,6 +275,110 @@ export function selectTotalFraisFixesAnnuels(fraisFixes: FraisFixe[]): number {
   );
 }
 
+// ─── State shape used by global selectors ────────────────────────────────────
+
+interface AppState {
+  recettes: RecetteFB[];
+  ingredients: IngredientFB[];
+  categoriesCarte: CategorieCarte[];
+  hypothesesBP: HypothesesBP;
+  salaries: Salarie[];
+  fraisFixes: FraisFixe[];
+}
+
+/**
+ * Selector: Centralised CA & Marge annuels depuis les données réelles
+ * (recettes + volumes simulateur — Section A du BP Réel).
+ *
+ * CA annuel = Σ (recette.prixVenteHT × recette.volumeHebdo × semainesOuverture)
+ *
+ * Coût matières annuel = Σ pour chaque recette de (coût matière calculé depuis
+ * les ingrédients × volumeHebdo × semainesOuverture).
+ * Si une recette n'a pas d'ingrédients, on utilise le foodCostCible moyen de
+ * sa catégorie comme fallback.
+ */
+export function selectReelSectionA(state: AppState): {
+  caAnnuel: number;
+  coutMatiereAnnuel: number;
+  margeBruteAnnuelle: number;
+} {
+  const { recettes, ingredients, categoriesCarte, hypothesesBP } = state;
+  const semainesOuverture = hypothesesBP.semainesOuverture || 48;
+
+  // Build ingredient price map for fast lookup
+  const ingredientMap = new Map<string, IngredientFB>();
+  for (const ing of ingredients) {
+    ingredientMap.set(ing.id, ing);
+  }
+
+  // Build category foodCost map for fallback
+  const categoryFoodCostMap = new Map<string, number>();
+  for (const cat of categoriesCarte) {
+    categoryFoodCostMap.set(cat.id, cat.foodCostCible ?? 30);
+  }
+
+  const globalFoodCostFallback =
+    categoriesCarte.length > 0
+      ? categoriesCarte.reduce((s, c) => s + (c.foodCostCible ?? 30), 0) /
+        categoriesCarte.length
+      : 100 - (hypothesesBP.margeCibleGlobale ?? 70);
+
+  let caAnnuel = 0;
+  let coutMatiereAnnuel = 0;
+
+  for (const recette of recettes) {
+    const caRecette =
+      recette.prixVenteHT * recette.volumeHebdo * semainesOuverture;
+    caAnnuel += caRecette;
+
+    // Compute food cost from ingredients list if available
+    let coutMatiereRecette = 0;
+    if (recette.ingredients && recette.ingredients.length > 0) {
+      for (const ligne of recette.ingredients) {
+        const ing = ingredientMap.get(ligne.ingredientId);
+        if (ing) {
+          // Account for waste: net qty / (1 - perte%) = gross qty
+          const perteFactor = 1 - (ing.perteMatierePct ?? 0) / 100;
+          const qtyBrute =
+            perteFactor > 0
+              ? ligne.quantiteNette / perteFactor
+              : ligne.quantiteNette;
+          coutMatiereRecette += qtyBrute * ing.prixAchatHT;
+        }
+      }
+    } else {
+      // Fallback: use category foodCostCible %
+      const foodCostPct =
+        categoryFoodCostMap.get(recette.categorieId) ?? globalFoodCostFallback;
+      coutMatiereRecette = recette.prixVenteHT * (foodCostPct / 100);
+    }
+
+    coutMatiereAnnuel +=
+      coutMatiereRecette * recette.volumeHebdo * semainesOuverture;
+  }
+
+  const margeBruteAnnuelle = caAnnuel - coutMatiereAnnuel;
+
+  return { caAnnuel, coutMatiereAnnuel, margeBruteAnnuelle };
+}
+
+/**
+ * Selector: Centralised charges annuelles (Section B du BP Réel).
+ *
+ * fraisFixesAnnuels = Σ fraisFixes (Mensuel×12 ou Annuel×1)
+ * masseSalarialeAnnuelle = Σ salaries.coutTotalEmployeur × 12
+ */
+export function selectReelSectionB(state: AppState): {
+  fraisFixesAnnuels: number;
+  masseSalarialeAnnuelle: number;
+} {
+  const fraisFixesAnnuels = selectTotalFraisFixesAnnuels(state.fraisFixes);
+  const masseSalarialeAnnuelle = selectTotalMasseSalarialeAnnuelle(
+    state.salaries,
+  );
+  return { fraisFixesAnnuels, masseSalarialeAnnuelle };
+}
+
 // ─── Store ────────────────────────────────────────────────────────────────────
 
 export const useAppStore = create<AppStore>()(
@@ -207,6 +390,10 @@ export const useAppStore = create<AppStore>()(
       ingredients: [],
       recettes: [],
       categoriesCarte: DEFAULT_CATEGORIES_CARTE,
+      associes: [],
+      emprunts: [],
+      immobilisations: [],
+      ventesJournalieres: [],
 
       setSalaries: (salaries) => set({ salaries }),
       setFraisFixes: (fraisFixes) => set({ fraisFixes }),
@@ -262,6 +449,63 @@ export const useAppStore = create<AppStore>()(
       resetVolumes: () =>
         set((state) => ({
           recettes: state.recettes.map((r) => ({ ...r, volumeHebdo: 0 })),
+        })),
+
+      addAssocie: (associe) =>
+        set((state) => ({
+          associes: [
+            ...state.associes,
+            { ...associe, id: crypto.randomUUID() },
+          ],
+        })),
+      updateAssocie: (id, updates) =>
+        set((state) => ({
+          associes: state.associes.map((a) =>
+            a.id === id ? { ...a, ...updates } : a,
+          ),
+        })),
+      removeAssocie: (id) =>
+        set((state) => ({
+          associes: state.associes.filter((a) => a.id !== id),
+        })),
+
+      addEmprunt: (emprunt) =>
+        set((state) => ({ emprunts: [...state.emprunts, emprunt] })),
+      updateEmprunt: (id, updates) =>
+        set((state) => ({
+          emprunts: state.emprunts.map((e) =>
+            e.id === id ? { ...e, ...updates } : e,
+          ),
+        })),
+      removeEmprunt: (id) =>
+        set((state) => ({
+          emprunts: state.emprunts.filter((e) => e.id !== id),
+        })),
+
+      addImmobilisation: (immobilisation) =>
+        set((state) => ({
+          immobilisations: [...state.immobilisations, immobilisation],
+        })),
+      updateImmobilisation: (id, updates) =>
+        set((state) => ({
+          immobilisations: state.immobilisations.map((i) =>
+            i.id === id ? { ...i, ...updates } : i,
+          ),
+        })),
+      removeImmobilisation: (id) =>
+        set((state) => ({
+          immobilisations: state.immobilisations.filter((i) => i.id !== id),
+        })),
+
+      addVenteJournaliere: (vente) =>
+        set((state) => ({
+          ventesJournalieres: [...state.ventesJournalieres, vente],
+        })),
+      removeVenteJournaliere: (id) =>
+        set((state) => ({
+          ventesJournalieres: state.ventesJournalieres.filter(
+            (v) => v.id !== id,
+          ),
         })),
     }),
     { name: "mini-erp-store" },
